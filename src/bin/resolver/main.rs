@@ -1,5 +1,6 @@
 use std::{io, net::SocketAddr, sync::Arc};
 use tokio::net::{ToSocketAddrs, UdpSocket};
+use tracing::{Level, debug, info};
 
 const SOCKET_ADDR_DEFAULT: &str = "127.0.0.1:3553";
 const RECV_BUFFER_SIZE: usize = 512;
@@ -8,6 +9,10 @@ type RecvBuffer = [u8; RECV_BUFFER_SIZE];
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
+    tracing_subscriber::fmt()
+        .with_max_level(Level::DEBUG)
+        .init();
+    info!("Starting DNS resolver");
     launch_server(SOCKET_ADDR_DEFAULT).await
 }
 
@@ -19,7 +24,7 @@ where
     loop {
         let mut recv_buffer: RecvBuffer = [0; RECV_BUFFER_SIZE];
         let (recv_len, recv_addr) = socket.recv_from(&mut recv_buffer).await?;
-        println!("{:?} bytes received from {:?}", recv_len, recv_addr);
+        debug!(recv_len, ?recv_addr, "bytes received");
         tokio::spawn(process_recv_data(
             recv_len,
             recv_buffer,
@@ -36,6 +41,6 @@ async fn process_recv_data(
     socket: Arc<UdpSocket>,
 ) -> io::Result<()> {
     let len = socket.send_to(&buffer[..len], src_addr).await?;
-    println!("{:?} bytes sent", len);
+    debug!(len, "bytes sent");
     Ok(())
 }
