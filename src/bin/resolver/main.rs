@@ -32,8 +32,7 @@ where
         let (recv_len, recv_addr) = socket.recv_from(&mut recv_buffer).await?;
         debug!(recv_len, ?recv_addr, "bytes received");
         tokio::spawn(process_recv_data(
-            recv_len,
-            recv_buffer,
+            recv_buffer[..recv_len].to_vec(),
             recv_addr,
             Arc::clone(&socket),
         ));
@@ -41,14 +40,13 @@ where
 }
 
 async fn process_recv_data(
-    len: usize,
-    buffer: RecvBuffer,
+    buffer: Vec<u8>,
     src_addr: SocketAddr,
     socket: Arc<UdpSocket>,
 ) -> io::Result<()> {
     let message = parse(&buffer).unwrap();
     trace!(?message);
-    let len = socket.send_to(&buffer[..len], src_addr).await?;
+    let len = socket.send_to(&buffer, src_addr).await?;
     debug!(len, "bytes sent");
     Ok(())
 }
