@@ -1,9 +1,19 @@
-[package]
-name = "dnskit-rs"
-version = "0.1.0"
-edition = "2024"
+[workspace]
 
-[dependencies]
+members = ["lib", "apps/*"]
+resolver = "3"
+
+
+[workspace.package]
+
+authors = ["Vincent Hiribarren"]
+description = "DNS tools"
+edition = "2024"
+version = "0.1.0"
+
+
+[workspace.dependencies]
+
 hex = "0.4.3"
 tokio = {version = "1.49.0", features = ["net", "rt", "macros"] }
 tracing = "0.1.44"

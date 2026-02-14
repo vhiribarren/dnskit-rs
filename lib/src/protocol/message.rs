@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub struct Message {
     pub header: Header,
-    //pub question: Question,
+    //pub questions: Vec<Question>,
     //pub answer: Answer,
     //pub authority: Authority,
     //pub additional: Additional,
@@ -91,7 +91,9 @@ impl TryFrom<u8> for ResponseCode {
     }
 }
 
-pub struct Question {}
+pub struct Question {
+
+}
 
 pub struct Answer {}
 

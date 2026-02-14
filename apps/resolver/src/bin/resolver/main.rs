@@ -1,4 +1,4 @@
-use dnskit_rs::protocol::parser::parse;
+use dnskit::protocol::parser::parse;
 use std::{io, net::SocketAddr, sync::Arc};
 use tokio::net::{ToSocketAddrs, UdpSocket};
 use tracing::{debug, info, level_filters::LevelFilter, trace};
