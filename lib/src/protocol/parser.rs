@@ -88,3 +88,36 @@ fn extract_from_u8(buffer: u8, min_idx: u8, max_idx: u8) -> u8 {
 fn bool_from_u8(buffer: u8, index: u8) -> bool {
     (buffer >> index) & 0x01 == 1
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::protocol::allocate_udp_recv_buffer;
+
+    use super::*;
+
+    const PAYLOAD: &'static str =
+        "33B80120000100000000000104616C6561036E657400000100010000291000000000000000";
+
+    #[test]
+    fn test_parse_header() {
+        let mut recv_buffer = allocate_udp_recv_buffer();
+        hex::decode_to_slice(PAYLOAD, &mut recv_buffer[..PAYLOAD.len() / 2]).unwrap();
+        let message = parse(&recv_buffer).unwrap();
+        let header = message.header;
+
+        assert_eq!(header.id, 13240);
+        assert_eq!(header.query_response, QueryResponse::Query);
+        assert_eq!(header.opcode, OpCode::Query);
+        assert_eq!(header.authoritative_answer, false);
+        assert_eq!(header.truncation, false);
+        assert_eq!(header.recursion_available, false);
+        assert_eq!(header.recursion_desired, true);
+        assert_eq!(header.authentic_data, true);
+        assert_eq!(header.checking_disabled, false);
+        assert_eq!(header.response_code, ResponseCode::NoErrorCondition);
+        assert_eq!(header.qd_count, 1);
+        assert_eq!(header.an_count, 0);
+        assert_eq!(header.ns_count, 0);
+        assert_eq!(header.ar_count, 1);
+    }
+}

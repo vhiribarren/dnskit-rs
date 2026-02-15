@@ -20,6 +20,9 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 [[package]]
 name = "dnskit-lib"
 version = "0.1.0"
+dependencies = [
+ "hex",
+]
 
 [[package]]
 name = "dnskit-resolver"

@@ -52,7 +52,7 @@ pub struct Header {
 
 pub type Id = u16;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum QueryResponse {
     Query,
     Response,
@@ -69,7 +69,7 @@ impl TryFrom<u8> for QueryResponse {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum OpCode {
     Query,
     InverseQuery,
@@ -90,7 +90,7 @@ impl TryFrom<u8> for OpCode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ResponseCode {
     NoErrorCondition,
     FormatError,

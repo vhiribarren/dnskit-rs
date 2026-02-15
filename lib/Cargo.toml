@@ -1,4 +1,5 @@
 [package]
+
 name = "dnskit-lib"
 version.workspace = true
 authors.workspace = true
@@ -8,7 +9,10 @@ license.workspace = true
 
 
 [lib]
+
 name = "dnskit"
+
 
 [dependencies]
 
+hex.workspace = true
