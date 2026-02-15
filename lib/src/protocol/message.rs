@@ -91,9 +91,7 @@ impl TryFrom<u8> for ResponseCode {
     }
 }
 
-pub struct Question {
-
-}
+pub struct Question {}
 
 pub struct Answer {}
 
