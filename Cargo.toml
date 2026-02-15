@@ -10,6 +10,8 @@ authors = ["Vincent Hiribarren"]
 description = "DNS tools"
 edition = "2024"
 version = "0.1.0"
+license = "MIT"
+license-file = "LICENSE.md"
 
 
 [workspace.dependencies]

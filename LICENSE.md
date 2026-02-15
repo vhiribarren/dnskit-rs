@@ -1,4 +1,3 @@
-/*
 MIT License
 
 Copyright (c) 2026 Vincent Hiribarren
@@ -20,14 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-*/
-
-pub mod message;
-pub mod parser;
-
-pub const UDP_RECV_BUFFER_SIZE: usize = 512;
-pub type UdpRecvBuffer = [u8; UDP_RECV_BUFFER_SIZE];
-
-pub fn allocate_udp_recv_buffer() -> UdpRecvBuffer {
-    [0; UDP_RECV_BUFFER_SIZE]
-}
