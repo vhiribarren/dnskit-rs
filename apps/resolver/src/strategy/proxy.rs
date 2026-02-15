@@ -1,16 +1,33 @@
+use dnskit::protocol::allocate_udp_recv_buffer;
 use hex::ToHex;
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{
+    io,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 use tokio::net::UdpSocket;
-use tracing::{debug, info, trace};
+use tracing::{info, trace};
 
 use crate::strategy::ProcessStrategy;
 
-type RecvBuffer = [u8; RECV_BUFFER_SIZE];
+const TARGET_PROXY_ADDR_DEFAULT: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
+pub struct ProxyStrategy {
+    socket_addr: SocketAddr,
+}
 
-const TARGET_ADDR_DEFAULT: &str = "8.8.8.8:53";
-const RECV_BUFFER_SIZE: usize = 512;
+impl ProxyStrategy {
+    pub fn new(socket_addr: SocketAddr) -> Self {
+        info!("Proxy strategy configured with target address: {socket_addr}");
+        ProxyStrategy { socket_addr }
+    }
+}
 
-pub struct ProxyStrategy;
+impl Default for ProxyStrategy {
+    fn default() -> Self {
+        Self::new(TARGET_PROXY_ADDR_DEFAULT)
+    }
+}
 
 impl ProcessStrategy for ProxyStrategy {
     async fn process_recv_data(
@@ -22,9 +39,9 @@ impl ProcessStrategy for ProxyStrategy {
         trace!(from = %src_addr, len = buffer.len(), payload = buffer.encode_hex_upper::<String>(), "request");
 
         let client_socket = UdpSocket::bind("0.0.0.0:0").await?;
-        client_socket.connect(TARGET_ADDR_DEFAULT).await?;
+        client_socket.connect(self.socket_addr).await?;
 
-        let mut recv_buffer: RecvBuffer = [0; RECV_BUFFER_SIZE];
+        let mut recv_buffer = allocate_udp_recv_buffer();
         client_socket.send(&buffer).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
 
