@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use dnskit::protocol::allocate_udp_recv_buffer;
+use dnskit::protocol::{allocate_udp_recv_buffer, parser::parse};
 use hex::ToHex;
 use std::{
     io,
@@ -30,12 +30,14 @@ use std::{
     sync::Arc,
 };
 use tokio::net::UdpSocket;
-use tracing::{info, trace};
+use tracing::{debug, info, instrument, trace};
 
 use crate::strategy::ProcessStrategy;
 
+const LOCAL_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
 const TARGET_PROXY_ADDR_DEFAULT: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
+
 pub struct ProxyStrategy {
     socket_addr: SocketAddr,
 }
@@ -54,6 +56,7 @@ impl Default for ProxyStrategy {
 }
 
 impl ProcessStrategy for ProxyStrategy {
+    #[instrument(skip_all)]
     async fn process_recv_data(
         &self,
         buffer: Vec<u8>,
@@ -61,9 +64,13 @@ impl ProcessStrategy for ProxyStrategy {
         socket: Arc<UdpSocket>,
     ) -> io::Result<()> {
         info!(from = %src_addr, "request received");
-        trace!(from = %src_addr, len = buffer.len(), payload = buffer.encode_hex_upper::<String>());
+        trace!(
+            len = buffer.len(),
+            payload = buffer.encode_hex_upper::<String>()
+        );
+        debug!(message = ?parse(&buffer));
 
-        let client_socket = UdpSocket::bind("0.0.0.0:0").await?;
+        let client_socket = UdpSocket::bind(LOCAL_ADDR).await?;
         client_socket.connect(self.socket_addr).await?;
 
         let mut recv_buffer = allocate_udp_recv_buffer();
@@ -71,8 +78,9 @@ impl ProcessStrategy for ProxyStrategy {
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
 
         trace!(to = %src_addr, len = recv_len, payload = (&recv_buffer[..recv_len]).encode_hex_upper::<String>(), "response");
-        socket.send_to(&recv_buffer[..recv_len], src_addr).await?;
+        debug!(message = ?parse(&recv_buffer), "response");
 
+        socket.send_to(&recv_buffer[..recv_len], src_addr).await?;
         Ok(())
     }
 }

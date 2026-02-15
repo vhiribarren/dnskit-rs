@@ -38,6 +38,7 @@ const SOCKET_ADDR_DEFAULT: &str = "127.0.0.1:3553";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
+        .with_target(false)
         .with_env_filter(
             EnvFilter::builder()
                 .with_default_directive(LevelFilter::INFO.into())
