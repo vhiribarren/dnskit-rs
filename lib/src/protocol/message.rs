@@ -22,10 +22,125 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+
+macro_rules! int_enum_with_catchall_u16 {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $(
+                $variant:ident = $value:expr
+            ),+ $(,)?
+        }
+        catch_all = $catchall:ident
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        $vis enum $name {
+            $(
+                $variant,
+            )+
+            $catchall(u16),
+        }
+
+        impl From<u16> for $name {
+            fn from(value: u16) -> Self {
+                match value {
+                    $(
+                        $value => $name::$variant,
+                    )+
+                    v => $name::$catchall(v),
+                }
+            }
+        }
+
+        impl From<$name> for u16 {
+            fn from(value: $name) -> Self {
+                match value {
+                    $(
+                        $name::$variant => $value,
+                    )+
+                    $name::$catchall(v) => v,
+                }
+            }
+        }
+    };
+}
+
+int_enum_with_catchall_u16! {
+    pub enum Class {
+        Internet = 1,
+        CSNet = 2,
+        CHAOS = 3,
+        Hesiod = 4,
+    }
+    catch_all = Other
+}
+
+int_enum_with_catchall_u16! {
+    pub enum QClass {
+        Internet = 1,
+        CSNet = 2,
+        CHAOS = 3,
+        Hesiod = 4,
+        Any = 255,
+    }
+    catch_all = Other
+}
+
+int_enum_with_catchall_u16!{
+    pub enum Type {
+        A = 1,
+        NS = 2,
+        MD = 3,
+        MF = 4,
+        CNAME = 5,
+        SOA = 6,
+        MB = 7,
+        MG = 8,
+        MR = 9,
+        NULL = 10,
+        WKS = 11,
+        PTR = 12,
+        HINFO = 13,
+        MINFO = 14,
+        MX = 15,
+        TXT = 16,
+    }
+    catch_all = Other
+}
+
+
+int_enum_with_catchall_u16!{
+    pub enum QType {
+        A = 1,
+        NS = 2,
+        MD = 3,
+        MF = 4,
+        CNAME = 5,
+        SOA = 6,
+        MB = 7,
+        MG = 8,
+        MR = 9,
+        NULL = 10,
+        WKS = 11,
+        PTR = 12,
+        HINFO = 13,
+        MINFO = 14,
+        MX = 15,
+        TXT = 16,
+        AXFR = 252,
+        MAILB = 253,
+        MAILA = 254,
+        All = 255,
+    }
+    catch_all = Other
+}
+
+
 #[derive(Debug)]
 pub struct Message {
     pub header: Header,
-    //pub questions: Vec<Question>,
+    pub questions: Vec<Question>,
     //pub answer: Answer,
     //pub authority: Authority,
     //pub additional: Additional,
@@ -115,7 +230,18 @@ impl TryFrom<u8> for ResponseCode {
     }
 }
 
-pub struct Question {}
+#[derive(Debug)]
+pub struct Question {
+    pub qname: Vec<String>,
+    pub qtype: QType,
+    pub qclass: QClass,
+}
+
+impl Question {
+    pub fn name(&self) -> String {
+        self.qname.join(".")
+    }
+}
 
 pub struct Answer {}
 

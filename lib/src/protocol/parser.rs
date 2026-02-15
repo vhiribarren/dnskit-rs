@@ -24,31 +24,38 @@ SOFTWARE.
 
 use std::error::Error;
 
-use crate::protocol::message::{Header, Message, OpCode, QueryResponse, ResponseCode};
+use tracing::trace;
 
-pub fn parse(buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
-    let header = parse_header(&buffer)?;
-    Ok(Message { header })
+use crate::protocol::message::{
+    Header, Message, OpCode, QClass, QType, QueryResponse, Question, ResponseCode,
+};
+
+pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
+    let header = parse_header(&mut buffer)?;
+    let questions = (0..header.qd_count)
+        .map(|_| parse_question(buffer))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Message { header, questions })
 }
 
-fn parse_header(mut buffer: &[u8]) -> Result<Header, Box<dyn Error>> {
-    let id = consume_u16(&mut buffer)?;
+fn parse_header(buffer: &mut &[u8]) -> Result<Header, Box<dyn Error>> {
+    let id = consume_u16(buffer)?;
     let query_response = QueryResponse::try_from(extract_from_u8(buffer[0], 7, 7))?;
     let opcode = OpCode::try_from(extract_from_u8(buffer[0], 3, 6))?;
     let authoritative_answer: bool = bool_from_u8(buffer[0], 2);
     let truncation: bool = bool_from_u8(buffer[0], 1);
     let recursion_desired: bool = bool_from_u8(buffer[0], 0);
-    consume(&mut buffer, 1);
+    consume(buffer, 1);
     let recursion_available = bool_from_u8(buffer[0], 7);
     let reserved = bool_from_u8(buffer[0], 6);
     let authentic_data = bool_from_u8(buffer[0], 5);
     let checking_disabled = bool_from_u8(buffer[0], 4);
     let response_code = ResponseCode::try_from(extract_from_u8(buffer[0], 0, 3))?;
-    consume(&mut buffer, 1);
-    let qd_count = consume_u16(&mut buffer)?;
-    let an_count = consume_u16(&mut buffer)?;
-    let ns_count = consume_u16(&mut buffer)?;
-    let ar_count = consume_u16(&mut buffer)?;
+    consume(buffer, 1);
+    let qd_count = consume_u16(buffer)?;
+    let an_count = consume_u16(buffer)?;
+    let ns_count = consume_u16(buffer)?;
+    let ar_count = consume_u16(buffer)?;
     Ok(Header {
         id,
         query_response,
@@ -68,9 +75,41 @@ fn parse_header(mut buffer: &[u8]) -> Result<Header, Box<dyn Error>> {
     })
 }
 
+fn parse_question(mut buffer: &[u8]) -> Result<Question, Box<dyn Error>> {
+    let mut qname = Vec::new();
+    while let Ok(length) = consume_u8(&mut buffer) {
+        trace!(?qname);
+        if length == 0 {
+            break;
+        }
+        qname.push(String::from_utf8(
+            consume_slice(&mut buffer, length as usize)?.into(),
+        )?);
+    }
+    let qtype = QType::from(consume_u16(&mut buffer)?);
+    let qclass = QClass::from(consume_u16(&mut buffer)?);
+    Ok(Question {
+        qname,
+        qtype,
+        qclass,
+    })
+}
+
 #[inline(always)]
-fn consume(buffer: &mut &[u8], index: usize) {
-    *buffer = &buffer[index..];
+fn consume(buffer: &mut &[u8], count: usize) {
+    *buffer = &buffer[count..];
+}
+
+fn consume_slice<'a>(buffer: &mut &'a [u8], count: usize) -> Result<&'a [u8], Box<dyn Error>> {
+    let result = &buffer[..count];
+    consume(buffer, count);
+    Ok(result)
+}
+
+fn consume_u8(buffer: &mut &[u8]) -> Result<u8, Box<dyn Error>> {
+    let val = buffer[0];
+    consume(buffer, 1);
+    Ok(val)
 }
 
 fn consume_u16(buffer: &mut &[u8]) -> Result<u16, Box<dyn Error>> {
@@ -119,5 +158,18 @@ mod tests {
         assert_eq!(header.an_count, 0);
         assert_eq!(header.ns_count, 0);
         assert_eq!(header.ar_count, 1);
+    }
+
+    #[test]
+    fn test_parse_question() {
+        let mut recv_buffer = allocate_udp_recv_buffer();
+        hex::decode_to_slice(PAYLOAD, &mut recv_buffer[..PAYLOAD.len() / 2]).unwrap();
+        let message = parse(&recv_buffer).unwrap();
+        assert_eq!(message.questions.len(), 1);
+        let question = message.questions.iter().next().unwrap();
+
+        assert_eq!(&question.name(), "alea.net");
+        assert_eq!(question.qtype, QType::A);
+        assert_eq!(question.qclass, QClass::Internet);
     }
 }

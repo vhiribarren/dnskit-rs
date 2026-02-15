@@ -22,6 +22,7 @@ name = "dnskit-lib"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "tracing",
 ]
 
 [[package]]

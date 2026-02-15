@@ -16,3 +16,4 @@ name = "dnskit"
 [dependencies]
 
 hex.workspace = true
+tracing.workspace = true
