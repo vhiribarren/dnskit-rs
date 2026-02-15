@@ -60,7 +60,8 @@ impl ProcessStrategy for ProxyStrategy {
         src_addr: SocketAddr,
         socket: Arc<UdpSocket>,
     ) -> io::Result<()> {
-        trace!(from = %src_addr, len = buffer.len(), payload = buffer.encode_hex_upper::<String>(), "request");
+        info!(from = %src_addr, "request received");
+        trace!(from = %src_addr, len = buffer.len(), payload = buffer.encode_hex_upper::<String>());
 
         let client_socket = UdpSocket::bind("0.0.0.0:0").await?;
         client_socket.connect(self.socket_addr).await?;
@@ -70,7 +71,7 @@ impl ProcessStrategy for ProxyStrategy {
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
 
         trace!(to = %src_addr, len = recv_len, payload = (&recv_buffer[..recv_len]).encode_hex_upper::<String>(), "response");
-        socket.send_to(&recv_buffer, src_addr).await?;
+        socket.send_to(&recv_buffer[..recv_len], src_addr).await?;
 
         Ok(())
     }
