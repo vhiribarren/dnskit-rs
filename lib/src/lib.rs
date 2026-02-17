@@ -23,3 +23,4 @@ SOFTWARE.
 */
 
 pub mod protocol;
+pub mod hints;
