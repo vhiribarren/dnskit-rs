@@ -25,7 +25,10 @@ SOFTWARE.
 pub mod message;
 pub mod parser;
 
+pub const LABEL_LEN_MAX: usize = 63;
+pub const NAME_LEN_MAX: usize = 255;
 pub const UDP_RECV_BUFFER_SIZE: usize = 512;
+
 pub type UdpRecvBuffer = [u8; UDP_RECV_BUFFER_SIZE];
 
 pub fn allocate_udp_recv_buffer() -> UdpRecvBuffer {

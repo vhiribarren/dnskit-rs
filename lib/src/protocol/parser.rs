@@ -26,16 +26,36 @@ use std::error::Error;
 
 use tracing::trace;
 
-use crate::protocol::message::{
-    Header, Message, OpCode, QClass, QType, QueryResponse, Question, ResponseCode,
+use crate::protocol::{
+    LABEL_LEN_MAX, NAME_LEN_MAX,
+    message::{
+        Header, Label, Message, OpCode, QClass, QType, QueryResponse, Question, ResourceRecord,
+        ResponseCode,
+    },
 };
 
 pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
+    let full_payload = buffer;
     let header = parse_header(&mut buffer)?;
     let questions = (0..header.qd_count)
-        .map(|_| parse_question(buffer))
+        .map(|_| parse_question(&mut buffer))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Message { header, questions })
+    let answer = (0..header.an_count)
+        .map(|_| parse_resource_record(&mut buffer, full_payload))
+        .collect::<Result<Vec<_>, _>>()?;
+    let authority = (0..header.ns_count)
+        .map(|_| parse_resource_record(&mut buffer, full_payload))
+        .collect::<Result<Vec<_>, _>>()?;
+    let additional = (0..header.ar_count)
+        .map(|_| parse_resource_record(&mut buffer, full_payload))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Message {
+        header,
+        questions,
+        answer,
+        authority,
+        additional,
+    })
 }
 
 fn parse_header(buffer: &mut &[u8]) -> Result<Header, Box<dyn Error>> {
@@ -75,23 +95,120 @@ fn parse_header(buffer: &mut &[u8]) -> Result<Header, Box<dyn Error>> {
     })
 }
 
-fn parse_question(mut buffer: &[u8]) -> Result<Question, Box<dyn Error>> {
-    let mut qname = Vec::new();
-    while let Ok(length) = consume_u8(&mut buffer) {
+fn parse_question(buffer: &mut &[u8]) -> Result<Question, Box<dyn Error>> {
+    let mut qname = Vec::new(); // TODO Ensure name and lables are ASCII and within max level ranges
+    while let Ok(length) = consume_u8(buffer) {
         if length == 0 {
             break;
         }
         qname.push(String::from_utf8(
-            consume_slice(&mut buffer, length as usize)?.into(),
+            consume_slice(buffer, length as usize)?.into(),
         )?);
     }
-    let qtype = QType::from(consume_u16(&mut buffer)?);
-    let qclass = QClass::from(consume_u16(&mut buffer)?);
+    let qtype = QType::from(consume_u16(buffer)?);
+    let qclass = QClass::from(consume_u16(buffer)?);
     Ok(Question {
         qname,
         qtype,
         qclass,
     })
+}
+
+fn parse_resource_record(
+    buffer: &mut &[u8],
+    full_buffer: &[u8],
+) -> Result<ResourceRecord, Box<dyn Error>> {
+    let name = parse_resource_record_name(buffer, full_buffer)?;
+    let r#type = consume_u16(buffer)?.into();
+    let class = consume_u16(buffer)?.into();
+    let ttl = consume_u32(buffer)?;
+    let rdlength = consume_u16(buffer)?;
+    let rdata = consume_slice(buffer, rdlength as usize)?.into();
+    Ok(ResourceRecord {
+        name,
+        r#type,
+        class,
+        ttl,
+        rdlength,
+        rdata,
+    })
+}
+
+fn parse_resource_record_name(
+    buffer: &mut &[u8],
+    full_buffer: &[u8],
+) -> Result<Vec<Label>, Box<dyn Error>> {
+    let mut name_len = 0;
+    let mut name = Vec::new();
+    let mut marker;
+    let mut offsets = Vec::new();
+
+    loop {
+        marker = (buffer[0] & 0b11000000) >> 6;
+        if marker == 0b11 {
+            offsets.push(0x3FFF & consume_u16(buffer)? as usize);
+            break;
+        }
+        if marker != 0b00 {
+            return Err("error".into());
+        }
+        let length = consume_u8(buffer)? as usize;
+        if length == 0 {
+            if name_len + 1 > NAME_LEN_MAX {
+                return Err("error".into());
+            }
+            return Ok(name);
+        }
+        if length > LABEL_LEN_MAX {
+            return Err("error".into());
+        }
+        name_len += 1 + length;
+        if name_len > NAME_LEN_MAX {
+            return Err("error".into());
+        }
+        name.push(Label {
+            offsets: Vec::new(),
+            value: String::from_utf8(consume_slice(buffer, length as usize)?.into())?,
+        });
+    }
+
+    assert_eq!(marker, 0b11);
+    assert_eq!(offsets.len(), 1);
+    let mut offset = *offsets.last().unwrap(); // TODO Should also check if there is a cycle
+    loop {
+        marker = (full_buffer[offset] & 0b11000000) >> 6;
+        match marker {
+            0b11 => {
+                offset = 0x3FFF & peek_u16(&full_buffer[offset..offset + 2])? as usize;
+                offsets.push(offset);
+            }
+            0b00 => {
+                let length = full_buffer[offset] as usize;
+                if length == 0 {
+                    if name_len + 1 > NAME_LEN_MAX {
+                        return Err("error".into());
+                    }
+                    return Ok(name);
+                }
+                if length > LABEL_LEN_MAX {
+                    return Err("error".into());
+                }
+                name_len += length + 1;
+                if name_len > NAME_LEN_MAX {
+                    return Err("error".into());
+                }
+                name.push(Label {
+                    offsets,
+                    value: String::from_utf8(full_buffer[offset + 1..offset + 1 + length].into())?,
+                });
+                offsets = Vec::new();
+                offset += length + 1;
+            }
+            _ => {
+                return Err("error".into());
+            }
+        }
+    }
 }
 
 #[inline(always)]
@@ -105,6 +222,10 @@ fn consume_slice<'a>(buffer: &mut &'a [u8], count: usize) -> Result<&'a [u8], Bo
     Ok(result)
 }
 
+fn peek_u16(buffer: &[u8]) -> Result<u16, Box<dyn Error>> {
+    Ok(u16::from_be_bytes(buffer[..2].try_into()?))
+}
+
 fn consume_u8(buffer: &mut &[u8]) -> Result<u8, Box<dyn Error>> {
     let val = buffer[0];
     consume(buffer, 1);
@@ -114,6 +235,12 @@ fn consume_u8(buffer: &mut &[u8]) -> Result<u8, Box<dyn Error>> {
 fn consume_u16(buffer: &mut &[u8]) -> Result<u16, Box<dyn Error>> {
     let val = u16::from_be_bytes(buffer[..2].try_into()?);
     consume(buffer, 2);
+    Ok(val)
+}
+
+fn consume_u32(buffer: &mut &[u8]) -> Result<u32, Box<dyn Error>> {
+    let val = u32::from_be_bytes(buffer[..4].try_into()?);
+    consume(buffer, 4);
     Ok(val)
 }
 
@@ -129,7 +256,10 @@ fn bool_from_u8(buffer: u8, index: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::allocate_udp_recv_buffer;
+    use crate::protocol::{
+        allocate_udp_recv_buffer,
+        message::{Class, Type},
+    };
 
     use super::*;
 
@@ -167,8 +297,112 @@ mod tests {
         assert_eq!(message.questions.len(), 1);
         let question = message.questions.iter().next().unwrap();
 
-        assert_eq!(&question.name(), "alea.net");
-        assert_eq!(question.qtype, QType::A);
-        assert_eq!(question.qclass, QClass::Internet);
+        assert_eq!(&question.name(), "alea.net.");
+        assert_eq!(question.qtype, QType::Type(Type::A));
+        assert_eq!(question.qclass, QClass::Class(Class::Internet));
+    }
+
+    #[test]
+    fn test_parse_rr_name_no_offsets() {
+        let labels = vec!["www", "alea", "net"];
+        let result = "www.alea.net.";
+        let mut buffer = Vec::new();
+        for label in &labels {
+            buffer.push(label.len() as u8);
+            buffer.extend_from_slice(label.as_bytes());
+        }
+        buffer.push(0);
+        let parse_result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
+        assert_eq!(
+            parse_result
+                .iter()
+                .flat_map(|v| [&v.value, "."])
+                .collect::<Vec<_>>()
+                .join(""),
+            result
+        );
+    }
+
+    #[test]
+    fn test_parse_rr_name_offsets_immediate() {
+        let labels = vec!["www", "alea", "net"];
+        let result = "www.alea.net.";
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice(&0xC003_u16.to_be_bytes()); // Starting at offset 3
+        buffer.push(0); // padding    
+        for label in &labels {
+            buffer.push(label.len() as u8);
+            buffer.extend_from_slice(label.as_bytes());
+        }
+        buffer.push(0);
+        let parse_result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
+        assert_eq!(
+            parse_result
+                .iter()
+                .flat_map(|v| [&v.value, "."])
+                .collect::<Vec<_>>()
+                .join(""),
+            result
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_parse_rr_name_offsets_one() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_parse_rr_name_offsets_two() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_parse_rr_name_offsets_loop() {
+        unimplemented!()
+    }
+
+    #[test]
+    fn test_parse_rr_name_label_max() {
+        let labels = vec![
+            "123456789012345678901234567890123456789012345678901234567890123",
+            "alea",
+            "net",
+        ];
+        let result = "123456789012345678901234567890123456789012345678901234567890123.alea.net.";
+        let mut buffer = Vec::new();
+        for label in &labels {
+            buffer.push(label.len() as u8);
+            buffer.extend_from_slice(label.as_bytes());
+        }
+        buffer.push(0);
+        let parse_result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
+        assert_eq!(
+            parse_result
+                .iter()
+                .flat_map(|v| [&v.value, "."])
+                .collect::<Vec<_>>()
+                .join(""),
+            result
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_parse_rr_name_label_oversize() {
+        let labels = vec![
+            "1234567890123456789012345678901234567890123456789012345678901234",
+            "alea",
+            "net",
+        ];
+        let mut buffer = Vec::new();
+        for label in &labels {
+            buffer.push(label.len() as u8);
+            buffer.extend_from_slice(label.as_bytes());
+        }
+        buffer.push(0);
+        parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
     }
 }

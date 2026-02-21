@@ -26,7 +26,6 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use rand::prelude::*;
 
-
 pub fn random_root_server() -> &'static ServerInfo {
     ROOT_SERVERS
         .choose(&mut rand::rng())

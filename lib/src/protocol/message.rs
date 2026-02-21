@@ -75,7 +75,7 @@ int_enum_with_catchall_u16! {
     catch_all = Other
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QClass {
     Class(Class),
     Any,
@@ -122,7 +122,7 @@ int_enum_with_catchall_u16! {
     catch_all = Other
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QType {
     Type(Type),
     AXFR,
@@ -159,9 +159,9 @@ impl From<QType> for u16 {
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
-    //pub answer: Vec<ResourceRecord>,
-    //pub authority: Vec<ResourceRecord>,
-    //pub additional: Vec<ResourceRecord>,
+    pub answer: Vec<ResourceRecord>,
+    pub authority: Vec<ResourceRecord>,
+    pub additional: Vec<ResourceRecord>,
 }
 
 #[derive(Debug)]
@@ -257,16 +257,34 @@ pub struct Question {
 
 impl Question {
     pub fn name(&self) -> String {
-        self.qname.join(".")
+        let mut result = self.qname.join(".");
+        result.push('.');
+        result
     }
 }
 
 #[derive(Debug)]
+pub struct Label {
+    pub value: String,
+    pub offsets: Vec<usize>,
+}
+
+#[derive(Debug)]
 pub struct ResourceRecord {
-    pub name: Vec<String>,
+    pub name: Vec<Label>,
     pub r#type: Type,
     pub class: Class,
     pub ttl: u32,
     pub rdlength: u16,
     pub rdata: Vec<u8>,
+}
+
+impl ResourceRecord {
+    pub fn name(&self) -> String {
+        self.name
+            .iter()
+            .flat_map(|l| [l.value.as_str(), "."])
+            .collect::<Vec<_>>()
+            .join("")
+    }
 }
