@@ -270,8 +270,21 @@ pub struct Label {
 }
 
 #[derive(Debug)]
+pub struct CompressedName(pub Vec<Label>);
+
+impl CompressedName {
+    pub fn name(&self) -> String {
+        self.0
+            .iter()
+            .flat_map(|v| [&v.value, "."])
+            .collect::<Vec<_>>()
+            .join("")
+    }
+}
+
+#[derive(Debug)]
 pub struct ResourceRecord {
-    pub name: Vec<Label>,
+    pub name: CompressedName,
     pub r#type: Type,
     pub class: Class,
     pub ttl: u32,
@@ -282,6 +295,7 @@ pub struct ResourceRecord {
 impl ResourceRecord {
     pub fn name(&self) -> String {
         self.name
+            .0
             .iter()
             .flat_map(|l| [l.value.as_str(), "."])
             .collect::<Vec<_>>()

@@ -29,8 +29,8 @@ use tracing::trace;
 use crate::protocol::{
     LABEL_LEN_MAX, NAME_LEN_MAX,
     message::{
-        Header, Label, Message, OpCode, QClass, QType, QueryResponse, Question, ResourceRecord,
-        ResponseCode,
+        CompressedName, Header, Label, Message, OpCode, QClass, QType, QueryResponse, Question,
+        ResourceRecord, ResponseCode,
     },
 };
 
@@ -137,7 +137,7 @@ fn parse_resource_record(
 fn parse_resource_record_name(
     buffer: &mut &[u8],
     full_buffer: &[u8],
-) -> Result<Vec<Label>, Box<dyn Error>> {
+) -> Result<CompressedName, Box<dyn Error>> {
     let mut name_len = 0;
     let mut name = Vec::new();
     let mut marker;
@@ -157,7 +157,7 @@ fn parse_resource_record_name(
             if name_len + 1 > NAME_LEN_MAX {
                 return Err("error".into());
             }
-            return Ok(name);
+            return Ok(CompressedName(name));
         }
         if length > LABEL_LEN_MAX {
             return Err("error".into());
@@ -174,7 +174,9 @@ fn parse_resource_record_name(
 
     assert_eq!(marker, 0b11);
     assert_eq!(offsets.len(), 1);
-    let mut offset = *offsets.last().unwrap(); // TODO Should also check if there is a cycle
+    let mut offset = *offsets.last().unwrap();
+    // TODO Should also check if there is a cycle
+    // TODO Should ensure we do not go outside of bounds
     loop {
         marker = (full_buffer[offset] & 0b11000000) >> 6;
         match marker {
@@ -188,7 +190,7 @@ fn parse_resource_record_name(
                     if name_len + 1 > NAME_LEN_MAX {
                         return Err("error".into());
                     }
-                    return Ok(name);
+                    return Ok(CompressedName(name));
                 }
                 if length > LABEL_LEN_MAX {
                     return Err("error".into());
@@ -313,14 +315,7 @@ mod tests {
         }
         buffer.push(0);
         let parse_result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
-        assert_eq!(
-            parse_result
-                .iter()
-                .flat_map(|v| [&v.value, "."])
-                .collect::<Vec<_>>()
-                .join(""),
-            result
-        );
+        assert_eq!(parse_result.name(), result);
     }
 
     #[test]
@@ -336,14 +331,7 @@ mod tests {
         }
         buffer.push(0);
         let parse_result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
-        assert_eq!(
-            parse_result
-                .iter()
-                .flat_map(|v| [&v.value, "."])
-                .collect::<Vec<_>>()
-                .join(""),
-            result
-        );
+        assert_eq!(parse_result.name(), result);
     }
 
     #[test]
@@ -366,12 +354,9 @@ mod tests {
 
     #[test]
     fn test_parse_rr_name_label_max() {
-        let labels = vec![
-            "123456789012345678901234567890123456789012345678901234567890123",
-            "alea",
-            "net",
-        ];
-        let result = "123456789012345678901234567890123456789012345678901234567890123.alea.net.";
+        let long_label = "a".repeat(63);
+        let labels = vec![&long_label, "alea", "net"];
+        let result = long_label.clone() + ".alea.net.";
         let mut buffer = Vec::new();
         for label in &labels {
             buffer.push(label.len() as u8);
@@ -379,29 +364,63 @@ mod tests {
         }
         buffer.push(0);
         let parse_result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
-        assert_eq!(
-            parse_result
-                .iter()
-                .flat_map(|v| [&v.value, "."])
-                .collect::<Vec<_>>()
-                .join(""),
-            result
-        );
+        assert_eq!(parse_result.name(), result);
     }
 
     #[test]
     #[should_panic]
     fn test_parse_rr_name_label_oversize() {
+        let long_label = "a".repeat(64);
+        let labels = vec![&long_label, "alea", "net"];
+        let mut buffer = Vec::new();
+        for label in &labels {
+            buffer.push(label.len() as u8);
+            buffer.extend_from_slice(label.as_bytes());
+        }
+        buffer.push(0);
+        parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
+    }
+
+    #[test]
+    fn test_parse_rr_name_total_max() {
+        let long_label = "a".repeat(49);
         let labels = vec![
-            "1234567890123456789012345678901234567890123456789012345678901234",
-            "alea",
-            "net",
+            &long_label,
+            &long_label,
+            &long_label,
+            &long_label,
+            &long_label,
+            "123",
         ];
         let mut buffer = Vec::new();
         for label in &labels {
             buffer.push(label.len() as u8);
             buffer.extend_from_slice(label.as_bytes());
         }
+        buffer.push(0);
+        assert_eq!(buffer.len(), 255);
+        let result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
+        assert_eq!(result.name().len(), 254);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_parse_rr_name_total_oversize() {
+        let long_label = "a".repeat(49);
+        let labels = vec![
+            &long_label,
+            &long_label,
+            &long_label,
+            &long_label,
+            &long_label,
+            "1234",
+        ];
+        let mut buffer = Vec::new();
+        for label in &labels {
+            buffer.push(label.len() as u8);
+            buffer.extend_from_slice(label.as_bytes());
+        }
+        assert_eq!(buffer.len(), 256);
         buffer.push(0);
         parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
     }
