@@ -22,7 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-
 macro_rules! int_enum_with_catchall_u16 {
     (
         $(#[$meta:meta])*
@@ -76,18 +75,31 @@ int_enum_with_catchall_u16! {
     catch_all = Other
 }
 
-int_enum_with_catchall_u16! {
-    pub enum QClass {
-        Internet = 1,
-        CSNet = 2,
-        CHAOS = 3,
-        Hesiod = 4,
-        Any = 255,
-    }
-    catch_all = Other
+#[derive(Debug)]
+pub enum QClass {
+    Class(Class),
+    Any,
 }
 
-int_enum_with_catchall_u16!{
+impl From<u16> for QClass {
+    fn from(value: u16) -> Self {
+        match value {
+            255 => Self::Any,
+            other => Self::Class(Class::from(other)),
+        }
+    }
+}
+
+impl From<QClass> for u16 {
+    fn from(value: QClass) -> Self {
+        match value {
+            QClass::Any => 255,
+            QClass::Class(c) => u16::from(c),
+        }
+    }
+}
+
+int_enum_with_catchall_u16! {
     pub enum Type {
         A = 1,
         NS = 2,
@@ -105,45 +117,51 @@ int_enum_with_catchall_u16!{
         MINFO = 14,
         MX = 15,
         TXT = 16,
+        AAAA = 28,  // rfc3596
     }
     catch_all = Other
 }
 
-
-int_enum_with_catchall_u16!{
-    pub enum QType {
-        A = 1,
-        NS = 2,
-        MD = 3,
-        MF = 4,
-        CNAME = 5,
-        SOA = 6,
-        MB = 7,
-        MG = 8,
-        MR = 9,
-        NULL = 10,
-        WKS = 11,
-        PTR = 12,
-        HINFO = 13,
-        MINFO = 14,
-        MX = 15,
-        TXT = 16,
-        AXFR = 252,
-        MAILB = 253,
-        MAILA = 254,
-        All = 255,
-    }
-    catch_all = Other
+#[derive(Debug)]
+pub enum QType {
+    Type(Type),
+    AXFR,
+    MAILB,
+    MAILA,
+    All,
 }
 
+impl From<u16> for QType {
+    fn from(value: u16) -> Self {
+        match value {
+            252 => Self::AXFR,
+            253 => Self::MAILB,
+            254 => Self::MAILA,
+            255 => Self::All,
+            other => Self::Type(Type::from(other)),
+        }
+    }
+}
+
+impl From<QType> for u16 {
+    fn from(value: QType) -> Self {
+        match value {
+            QType::AXFR => 252,
+            QType::MAILB => 253,
+            QType::MAILA => 254,
+            QType::All => 255,
+            QType::Type(t) => u16::from(t),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
-    //pub answer: Answer,
-    //pub authority: Authority,
-    //pub additional: Additional,
+    //pub answer: Vec<ResourceRecord>,
+    //pub authority: Vec<ResourceRecord>,
+    //pub additional: Vec<ResourceRecord>,
 }
 
 #[derive(Debug)]
@@ -243,8 +261,12 @@ impl Question {
     }
 }
 
-pub struct Answer {}
-
-pub struct Authority {}
-
-pub struct Additional {}
+#[derive(Debug)]
+pub struct ResourceRecord {
+    pub name: Vec<String>,
+    pub r#type: Type,
+    pub class: Class,
+    pub ttl: u32,
+    pub rdlength: u16,
+    pub rdata: Vec<u8>,
+}

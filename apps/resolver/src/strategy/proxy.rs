@@ -63,12 +63,19 @@ impl ProcessStrategy for ProxyStrategy {
         src_addr: SocketAddr,
         socket: Arc<UdpSocket>,
     ) -> io::Result<()> {
-        info!(from = %src_addr, "request received");
+        let qmessage = parse(&buffer).unwrap();
+        let question = qmessage.questions.get(0).unwrap();
+        info!(
+            from = %src_addr,
+            qclass = ?question.qclass,
+            qtype = ?question.qtype,
+            qname = question.name(),
+            "request received");
         trace!(
             len = buffer.len(),
             payload = buffer.encode_hex_upper::<String>()
         );
-        debug!(message = ?parse(&buffer));
+        debug!(?qmessage);
 
         let client_socket = UdpSocket::bind(LOCAL_ADDR).await?;
         client_socket.connect(self.socket_addr).await?;
@@ -77,6 +84,7 @@ impl ProcessStrategy for ProxyStrategy {
         client_socket.send(&buffer).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
 
+        let rmessage = parse(&recv_buffer[..recv_len]).unwrap();
         trace!(to = %src_addr, len = recv_len, payload = (&recv_buffer[..recv_len]).encode_hex_upper::<String>(), "response");
         debug!(message = ?parse(&recv_buffer), "response");
 

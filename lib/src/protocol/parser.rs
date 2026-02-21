@@ -78,7 +78,6 @@ fn parse_header(buffer: &mut &[u8]) -> Result<Header, Box<dyn Error>> {
 fn parse_question(mut buffer: &[u8]) -> Result<Question, Box<dyn Error>> {
     let mut qname = Vec::new();
     while let Ok(length) = consume_u8(&mut buffer) {
-        trace!(?qname);
         if length == 0 {
             break;
         }
