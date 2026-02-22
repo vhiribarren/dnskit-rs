@@ -22,7 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use dnskit::protocol::{allocate_udp_recv_buffer, parser::parse};
+use dnskit::protocol::{
+    allocate_udp_recv_buffer,
+    message::{Message, QueryResponse},
+    parser::parse,
+};
 use hex::ToHex;
 use std::{
     io,
@@ -30,7 +34,7 @@ use std::{
     sync::Arc,
 };
 use tokio::net::UdpSocket;
-use tracing::{debug, info, instrument, trace};
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::strategy::ProcessStrategy;
 
@@ -64,13 +68,7 @@ impl ProcessStrategy for ProxyStrategy {
         socket: Arc<UdpSocket>,
     ) -> io::Result<()> {
         let qmessage = parse(&buffer).unwrap();
-        let question = qmessage.questions.get(0).unwrap();
-        info!(
-            from = %src_addr,
-            qclass = ?question.qclass,
-            qtype = ?question.qtype,
-            qname = question.name(),
-            "request received");
+        check_query_valid(&qmessage, &src_addr)?;
         trace!(
             len = buffer.len(),
             payload = buffer.encode_hex_upper::<String>()
@@ -85,10 +83,46 @@ impl ProcessStrategy for ProxyStrategy {
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
 
         let rmessage = parse(&recv_buffer[..recv_len]).unwrap();
+        check_response_valid(&rmessage, &self.socket_addr)?;
         trace!(to = %src_addr, len = recv_len, payload = (&recv_buffer[..recv_len]).encode_hex_upper::<String>(), "response");
         debug!(message = ?parse(&recv_buffer), "response");
 
         socket.send_to(&recv_buffer[..recv_len], src_addr).await?;
         Ok(())
     }
+}
+
+
+fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> io::Result<()> {
+    let question = qmessage.questions.get(0).unwrap();
+    if qmessage.header.query_response == QueryResponse::Query {
+        info!(
+                from = %src_addr,
+                qclass = ?question.qclass,
+                qtype = ?question.qtype,
+                qname = question.name(),
+                "query received");
+    } else {
+        warn!(
+                from = %src_addr,
+                qclass = ?question.qclass,
+                qtype = ?question.qtype,
+                qname = question.name(),
+                "was waiting for a query, but has response flag");
+    }
+    Ok(())
+}
+
+
+fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> io::Result<()> {
+        if rmessage.header.query_response == QueryResponse::Response {
+            info!(
+                from = %socket_addr,
+                "response received");
+        } else {
+            warn!(
+                from = %socket_addr,
+                "was waiting for a response, but has query flag");
+        }
+        Ok(())
 }
