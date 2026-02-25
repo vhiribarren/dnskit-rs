@@ -24,7 +24,7 @@ SOFTWARE.
 
 use dnskit::protocol::{
     allocate_udp_recv_buffer,
-    message::{Message, QueryResponse},
+    message::{Header, Message, QueryResponse},
     parser::parse,
 };
 use hex::ToHex;
@@ -90,8 +90,8 @@ impl ProcessStrategy for ProxyStrategy {
         socket.send_to(&recv_buffer[..recv_len], src_addr).await?;
         Ok(())
     }
+    
 }
-
 
 fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> io::Result<()> {
     let question = qmessage.questions.get(0).unwrap();
@@ -110,19 +110,24 @@ fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> io::Result<()
                 qname = question.name(),
                 "was waiting for a query, but has response flag");
     }
+    if qmessage.questions.len() != 1 {
+        warn!(count = qmessage.questions.len() , "query do not have 1 query entry");
+    }
     Ok(())
 }
 
-
 fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> io::Result<()> {
-        if rmessage.header.query_response == QueryResponse::Response {
-            info!(
+    if rmessage.header.query_response == QueryResponse::Response {
+        info!(
                 from = %socket_addr,
                 "response received");
-        } else {
-            warn!(
+    } else {
+        warn!(
                 from = %socket_addr,
                 "was waiting for a response, but has query flag");
-        }
-        Ok(())
+    }
+    if rmessage.questions.len() != 1 {
+        warn!(count = rmessage.questions.len() , "answer do not have 1 query entry");
+    }
+    Ok(())
 }

@@ -22,9 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::error::Error;
-
-use tracing::trace;
+use std::{error::Error, time::{Duration, Instant}};
 
 use crate::protocol::{
     LABEL_LEN_MAX, NAME_LEN_MAX,
@@ -36,17 +34,23 @@ use crate::protocol::{
 
 pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
     let full_payload = buffer;
-    let header = parse_header(&mut buffer)?;
-    let questions = (0..header.qd_count)
+    let FullHeader {
+        header,
+        qd_count,
+        an_count,
+        ns_count,
+        ar_count,
+    } = parse_header(&mut buffer)?;
+    let questions = (0..qd_count)
         .map(|_| parse_question(&mut buffer))
         .collect::<Result<Vec<_>, _>>()?;
-    let answer = (0..header.an_count)
+    let answer = (0..an_count)
         .map(|_| parse_resource_record(&mut buffer, full_payload))
         .collect::<Result<Vec<_>, _>>()?;
-    let authority = (0..header.ns_count)
+    let authority = (0..ns_count)
         .map(|_| parse_resource_record(&mut buffer, full_payload))
         .collect::<Result<Vec<_>, _>>()?;
-    let additional = (0..header.ar_count)
+    let additional = (0..ar_count)
         .map(|_| parse_resource_record(&mut buffer, full_payload))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Message {
@@ -58,7 +62,15 @@ pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
     })
 }
 
-fn parse_header(buffer: &mut &[u8]) -> Result<Header, Box<dyn Error>> {
+struct FullHeader {
+    header: Header,
+    qd_count: u16,
+    an_count: u16,
+    ns_count: u16,
+    ar_count: u16,
+}
+
+fn parse_header(buffer: &mut &[u8]) -> Result<FullHeader, Box<dyn Error>> {
     let id = consume_u16(buffer)?;
     let query_response = QueryResponse::try_from(extract_from_u8(buffer[0], 7, 7))?;
     let opcode = OpCode::try_from(extract_from_u8(buffer[0], 3, 6))?;
@@ -76,7 +88,7 @@ fn parse_header(buffer: &mut &[u8]) -> Result<Header, Box<dyn Error>> {
     let an_count = consume_u16(buffer)?;
     let ns_count = consume_u16(buffer)?;
     let ar_count = consume_u16(buffer)?;
-    Ok(Header {
+    let header = Header {
         id,
         query_response,
         opcode,
@@ -88,6 +100,9 @@ fn parse_header(buffer: &mut &[u8]) -> Result<Header, Box<dyn Error>> {
         authentic_data,
         checking_disabled,
         response_code,
+    };
+    Ok(FullHeader {
+        header,
         qd_count,
         an_count,
         ns_count,
@@ -121,15 +136,14 @@ fn parse_resource_record(
     let name = parse_resource_record_name(buffer, full_buffer)?;
     let r#type = consume_u16(buffer)?.into();
     let class = consume_u16(buffer)?.into();
-    let ttl = consume_u32(buffer)?;
+    let ttl = Instant::now() + Duration::from_secs(consume_u32(buffer)? as u64);
     let rdlength = consume_u16(buffer)?;
     let rdata = consume_slice(buffer, rdlength as usize)?.into();
     Ok(ResourceRecord {
-        name,
+        name: name.labels(),
         r#type,
         class,
         ttl,
-        rdlength,
         rdata,
     })
 }
@@ -285,10 +299,10 @@ mod tests {
         assert_eq!(header.authentic_data, true);
         assert_eq!(header.checking_disabled, false);
         assert_eq!(header.response_code, ResponseCode::NoErrorCondition);
-        assert_eq!(header.qd_count, 1);
-        assert_eq!(header.an_count, 0);
-        assert_eq!(header.ns_count, 0);
-        assert_eq!(header.ar_count, 1);
+        assert_eq!(message.questions.len(), 1);
+        assert_eq!(message.answer.len(), 0);
+        assert_eq!(message.authority.len(), 0);
+        assert_eq!(message.additional.len(), 1);
     }
 
     #[test]
@@ -299,7 +313,7 @@ mod tests {
         assert_eq!(message.questions.len(), 1);
         let question = message.questions.iter().next().unwrap();
 
-        assert_eq!(&question.name(), "alea.net.");
+        assert_eq!(&question.name(), "alea.net");
         assert_eq!(question.qtype, QType::Type(Type::A));
         assert_eq!(question.qclass, QClass::Class(Class::Internet));
     }
@@ -307,7 +321,7 @@ mod tests {
     #[test]
     fn test_parse_rr_name_no_offsets() {
         let labels = vec!["www", "alea", "net"];
-        let result = "www.alea.net.";
+        let result = "www.alea.net";
         let mut buffer = Vec::new();
         for label in &labels {
             buffer.push(label.len() as u8);
@@ -321,7 +335,7 @@ mod tests {
     #[test]
     fn test_parse_rr_name_offsets_immediate() {
         let labels = vec!["www", "alea", "net"];
-        let result = "www.alea.net.";
+        let result = "www.alea.net";
         let mut buffer = Vec::new();
         buffer.extend_from_slice(&0xC003_u16.to_be_bytes()); // Starting at offset 3
         buffer.push(0); // padding    
@@ -356,7 +370,7 @@ mod tests {
     fn test_parse_rr_name_label_max() {
         let long_label = "a".repeat(63);
         let labels = vec![&long_label, "alea", "net"];
-        let result = long_label.clone() + ".alea.net.";
+        let result = long_label.clone() + ".alea.net";
         let mut buffer = Vec::new();
         for label in &labels {
             buffer.push(label.len() as u8);
@@ -400,7 +414,7 @@ mod tests {
         buffer.push(0);
         assert_eq!(buffer.len(), 255);
         let result = parse_resource_record_name(&mut &buffer[..], &buffer).unwrap();
-        assert_eq!(result.name().len(), 254);
+        assert_eq!(result.name().len(), 253);
     }
 
     #[test]

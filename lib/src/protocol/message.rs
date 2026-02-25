@@ -22,6 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use std::{error::Error, time::Instant};
+
 macro_rules! int_enum_with_catchall_u16 {
     (
         $(#[$meta:meta])*
@@ -33,7 +35,7 @@ macro_rules! int_enum_with_catchall_u16 {
         catch_all = $catchall:ident
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         $vis enum $name {
             $(
                 $variant,
@@ -75,7 +77,7 @@ int_enum_with_catchall_u16! {
     catch_all = Other
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QClass {
     Class(Class),
     Any,
@@ -122,7 +124,7 @@ int_enum_with_catchall_u16! {
     catch_all = Other
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QType {
     Type(Type),
     AXFR,
@@ -164,6 +166,21 @@ pub struct Message {
     pub additional: Vec<ResourceRecord>,
 }
 
+impl Message {
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.append(&mut self.header.serialize());
+        payload.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
+        payload.extend_from_slice(&(self.answer.len() as u16).to_be_bytes());
+        payload.extend_from_slice(&(self.authority.len() as u16).to_be_bytes());
+        payload.extend_from_slice(&(self.additional.len() as u16).to_be_bytes());
+        self.questions
+            .iter()
+            .for_each(|q| payload.append(&mut q.serialize()));
+        payload
+    }
+}
+
 #[derive(Debug)]
 pub struct Header {
     pub id: Id,
@@ -177,15 +194,31 @@ pub struct Header {
     pub authentic_data: bool,    // rfc2535
     pub checking_disabled: bool, // rfc2535
     pub response_code: ResponseCode,
-    pub qd_count: u16,
-    pub an_count: u16,
-    pub ns_count: u16,
-    pub ar_count: u16,
+}
+
+impl Header {
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut chunk = Vec::new();
+        chunk.extend_from_slice(&self.id.to_be_bytes());
+        let mut flags = 0_u16;
+        flags |= u16::from(self.query_response) << 15;
+        flags |= u16::from(self.opcode) << 11;
+        flags |= u16::from(self.authoritative_answer) << 10;
+        flags |= u16::from(self.truncation) << 9;
+        flags |= u16::from(self.recursion_desired) << 8;
+        flags |= u16::from(self.recursion_available) << 7;
+        flags |= u16::from(self.reserved) << 6;
+        flags |= u16::from(self.authentic_data) << 5;
+        flags |= u16::from(self.checking_disabled) << 4;
+        flags |= u16::from(self.response_code);
+        chunk.extend_from_slice(&flags.to_be_bytes());
+        chunk
+    }
 }
 
 pub type Id = u16;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum QueryResponse {
     Query,
     Response,
@@ -202,7 +235,16 @@ impl TryFrom<u8> for QueryResponse {
     }
 }
 
-#[derive(Debug, PartialEq)]
+impl From<QueryResponse> for u16 {
+    fn from(value: QueryResponse) -> Self {
+        match value {
+            QueryResponse::Query => 0,
+            QueryResponse::Response => 1,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum OpCode {
     Query,
     InverseQuery,
@@ -223,7 +265,18 @@ impl TryFrom<u8> for OpCode {
     }
 }
 
-#[derive(Debug, PartialEq)]
+impl From<OpCode> for u16 {
+    fn from(value: OpCode) -> Self {
+        match value {
+            OpCode::Query => 0,
+            OpCode::InverseQuery => 1,
+            OpCode::Status => 2,
+            OpCode::Reserved(v) => v as u16,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ResponseCode {
     NoErrorCondition,
     FormatError,
@@ -233,6 +286,7 @@ pub enum ResponseCode {
     Refused,
     Reserved(u8),
 }
+
 impl TryFrom<u8> for ResponseCode {
     type Error = &'static str;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -240,6 +294,7 @@ impl TryFrom<u8> for ResponseCode {
             0 => ResponseCode::NoErrorCondition,
             1 => ResponseCode::FormatError,
             2 => ResponseCode::ServerFailure,
+            3 => ResponseCode::NameError,
             4 => ResponseCode::NotImplemented,
             5 => ResponseCode::Refused,
             x @ 6..=15 => ResponseCode::Reserved(x),
@@ -248,7 +303,21 @@ impl TryFrom<u8> for ResponseCode {
     }
 }
 
-#[derive(Debug)]
+impl From<ResponseCode> for u16 {
+    fn from(value: ResponseCode) -> Self {
+        match value {
+            ResponseCode::NoErrorCondition => 0,
+            ResponseCode::FormatError => 1,
+            ResponseCode::ServerFailure => 2,
+            ResponseCode::NameError => 3,
+            ResponseCode::NotImplemented => 4,
+            ResponseCode::Refused => 5,
+            ResponseCode::Reserved(r) => r as u16,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Question {
     pub qname: Vec<String>,
     pub qtype: QType,
@@ -256,49 +325,82 @@ pub struct Question {
 }
 
 impl Question {
+    pub fn new(name: &str, qclass: QClass, qtype: QType) -> Result<Question, Box<dyn Error>> {
+        let qname = name.split('.').map(str::to_owned).collect();
+        Ok(Question {
+            qname,
+            qtype,
+            qclass,
+        })
+    }
     pub fn name(&self) -> String {
-        let mut result = self.qname.join(".");
-        result.push('.');
-        result
+        self.qname.join(".")
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut chunk = Vec::new();
+        for label in &self.qname {
+            chunk.push(label.len() as u8);
+            chunk.extend_from_slice(&label.as_bytes())
+        }
+        chunk.extend_from_slice(&u16::from(self.qtype).to_be_bytes());
+        chunk.extend_from_slice(&u16::from(self.qclass).to_be_bytes());
+        chunk
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Label {
     pub value: String,
     pub offsets: Vec<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompressedName(pub Vec<Label>);
 
 impl CompressedName {
     pub fn name(&self) -> String {
         self.0
             .iter()
-            .flat_map(|v| [&v.value, "."])
+            .map(|v| v.value.clone())
             .collect::<Vec<_>>()
-            .join("")
+            .join(".")
+    }
+    pub fn labels(&self) -> Vec<String> {
+        self.0.iter().map(|v| v.value.clone()).collect::<Vec<_>>()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ResourceRecord {
-    pub name: CompressedName,
+    pub name: Vec<String>,
     pub r#type: Type,
     pub class: Class,
-    pub ttl: u32,
-    pub rdlength: u16,
+    pub ttl: Instant,
     pub rdata: Vec<u8>,
 }
 
 impl ResourceRecord {
     pub fn name(&self) -> String {
-        self.name
-            .0
-            .iter()
-            .flat_map(|l| [l.value.as_str(), "."])
-            .collect::<Vec<_>>()
-            .join("")
+        self.name.join(".")
     }
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut chunk = Vec::new();
+        chunk.extend_from_slice(&u16::from(self.r#type).to_be_bytes());
+        chunk.extend_from_slice(&u16::from(self.class).to_be_bytes());
+        chunk.extend_from_slice(&((self.ttl - Instant::now()).as_secs() as u32).to_be_bytes());
+        chunk.extend_from_slice(&(self.rdata.len() as u16).to_be_bytes());
+        chunk.extend_from_slice(&self.rdata);
+        chunk
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PAYLOAD: &'static str = "F29D818000010005000000010377777704616C6561036E65740000010001C00C0005000100002A3000170B766869726962617272656E0667697468756202696F00C02A0001000100000E100004B9C76E99C02A0001000100000E100004B9C76C99C02A0001000100000E100004B9C76F99C02A0001000100000E100004B9C76D990000290200000000000000";
+
+    #[test]
+    fn test_parse_header() {}
 }

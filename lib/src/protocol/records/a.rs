@@ -22,16 +22,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-pub mod message;
-pub mod parser;
-pub mod records;
+use std::{error::Error, net::Ipv4Addr};
 
-pub const LABEL_LEN_MAX: usize = 63;
-pub const NAME_LEN_MAX: usize = 255;
-pub const UDP_RECV_BUFFER_SIZE: usize = 512;
+pub struct A {
+    ipv4: Ipv4Addr,
+}
 
-pub type UdpRecvBuffer = [u8; UDP_RECV_BUFFER_SIZE];
+impl A {
+    pub fn new(ipv4: Ipv4Addr) -> Self {
+        Self { ipv4 }
+    }
 
-pub fn allocate_udp_recv_buffer() -> UdpRecvBuffer {
-    [0; UDP_RECV_BUFFER_SIZE]
+    pub fn parse(buffer: &[u8]) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            ipv4: Ipv4Addr::from_octets(buffer.try_into()?),
+        })
+    }
+
+    pub fn serialize(&self) -> Vec<u8> {
+        self.ipv4.octets().to_vec()
+    }
 }
