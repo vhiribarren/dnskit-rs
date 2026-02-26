@@ -43,7 +43,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test() -> Result<(), Box<dyn Error>> {
+    fn test() -> anyhow::Result<()> {
         let cache = &mut DnsCacheMemory::new();
         let question = &Question::new(
             "www.alea.net",

@@ -32,7 +32,7 @@ use crate::protocol::{
     },
 };
 
-pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
+pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error + Send + Sync + 'static>> {
     let full_payload = buffer;
     let FullHeader {
         header,
@@ -70,7 +70,7 @@ struct FullHeader {
     ar_count: u16,
 }
 
-fn parse_header(buffer: &mut &[u8]) -> Result<FullHeader, Box<dyn Error>> {
+fn parse_header(buffer: &mut &[u8]) -> Result<FullHeader, Box<dyn Error + Send + Sync>> {
     let id = consume_u16(buffer)?;
     let query_response = QueryResponse::try_from(extract_from_u8(buffer[0], 7, 7))?;
     let opcode = OpCode::try_from(extract_from_u8(buffer[0], 3, 6))?;
@@ -110,7 +110,7 @@ fn parse_header(buffer: &mut &[u8]) -> Result<FullHeader, Box<dyn Error>> {
     })
 }
 
-fn parse_question(buffer: &mut &[u8]) -> Result<Question, Box<dyn Error>> {
+fn parse_question(buffer: &mut &[u8]) -> Result<Question, Box<dyn Error + Send + Sync>> {
     let mut qname = Vec::new(); // TODO Ensure name and lables are ASCII and within max level ranges
     while let Ok(length) = consume_u8(buffer) {
         if length == 0 {
@@ -132,7 +132,7 @@ fn parse_question(buffer: &mut &[u8]) -> Result<Question, Box<dyn Error>> {
 fn parse_resource_record(
     buffer: &mut &[u8],
     full_buffer: &[u8],
-) -> Result<ResourceRecord, Box<dyn Error>> {
+) -> Result<ResourceRecord, Box<dyn Error + Send + Sync>> {
     let name = parse_resource_record_name(buffer, full_buffer)?;
     let r#type = consume_u16(buffer)?.into();
     let class = consume_u16(buffer)?.into();
@@ -151,7 +151,7 @@ fn parse_resource_record(
 fn parse_resource_record_name(
     buffer: &mut &[u8],
     full_buffer: &[u8],
-) -> Result<CompressedName, Box<dyn Error>> {
+) -> Result<CompressedName, Box<dyn Error + Send + Sync>> {
     let mut name_len = 0;
     let mut name = Vec::new();
     let mut marker;
@@ -232,29 +232,29 @@ fn consume(buffer: &mut &[u8], count: usize) {
     *buffer = &buffer[count..];
 }
 
-fn consume_slice<'a>(buffer: &mut &'a [u8], count: usize) -> Result<&'a [u8], Box<dyn Error>> {
+fn consume_slice<'a>(buffer: &mut &'a [u8], count: usize) -> Result<&'a [u8], Box<dyn Error + Send + Sync>> {
     let result = &buffer[..count];
     consume(buffer, count);
     Ok(result)
 }
 
-fn peek_u16(buffer: &[u8]) -> Result<u16, Box<dyn Error>> {
+fn peek_u16(buffer: &[u8]) -> Result<u16, Box<dyn Error + Send + Sync>> {
     Ok(u16::from_be_bytes(buffer[..2].try_into()?))
 }
 
-fn consume_u8(buffer: &mut &[u8]) -> Result<u8, Box<dyn Error>> {
+fn consume_u8(buffer: &mut &[u8]) -> Result<u8, Box<dyn Error + Send + Sync>> {
     let val = buffer[0];
     consume(buffer, 1);
     Ok(val)
 }
 
-fn consume_u16(buffer: &mut &[u8]) -> Result<u16, Box<dyn Error>> {
+fn consume_u16(buffer: &mut &[u8]) -> Result<u16, Box<dyn Error + Send + Sync>> {
     let val = u16::from_be_bytes(buffer[..2].try_into()?);
     consume(buffer, 2);
     Ok(val)
 }
 
-fn consume_u32(buffer: &mut &[u8]) -> Result<u32, Box<dyn Error>> {
+fn consume_u32(buffer: &mut &[u8]) -> Result<u32, Box<dyn Error + Send + Sync>> {
     let val = u32::from_be_bytes(buffer[..4].try_into()?);
     consume(buffer, 4);
     Ok(val)

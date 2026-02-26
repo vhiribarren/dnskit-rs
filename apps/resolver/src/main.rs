@@ -26,7 +26,7 @@ mod cache;
 mod strategy;
 
 use dnskit::protocol::allocate_udp_recv_buffer;
-use std::{io, sync::Arc};
+use std::sync::Arc;
 use tokio::net::{ToSocketAddrs, UdpSocket};
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::EnvFilter;
@@ -38,7 +38,7 @@ use crate::strategy::proxy_cache::ProxyCacheStrategy;
 const SOCKET_ADDR_DEFAULT: &str = "127.0.0.1:3553";
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_target(false)
         .with_env_filter(
@@ -51,7 +51,7 @@ async fn main() -> io::Result<()> {
     launch_server(SOCKET_ADDR_DEFAULT).await
 }
 
-async fn launch_server<A>(local_addr: A) -> io::Result<()>
+async fn launch_server<A>(local_addr: A) -> anyhow::Result<()>
 where
     A: ToSocketAddrs,
 {

@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use anyhow::Context;
 use dnskit::protocol::{
     allocate_udp_recv_buffer,
     message::{Header, Message, OpCode, QueryResponse, Question, ResourceRecord, ResponseCode},
@@ -29,12 +30,11 @@ use dnskit::protocol::{
 };
 use hex::ToHex;
 use std::{
-    io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex},
 };
 use tokio::net::UdpSocket;
-use tracing::{Level, debug, enabled, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     cache::{DnsCache, memory::DnsCacheMemory},
@@ -68,9 +68,12 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
         }
     }
 
-    async fn get_or_resolve(&self, questions: &[Question]) -> io::Result<Vec<ResourceRecord>> {
+    async fn get_or_resolve(&self, questions: &[Question]) -> anyhow::Result<Vec<ResourceRecord>> {
         let cached_questions = {
-            let mut locked_cache = self.cache.lock().unwrap();
+            let mut locked_cache = self
+                .cache
+                .lock()
+                .expect("Some thread panicked, stopping program");
             questions
                 .iter()
                 .map(|q| (locked_cache.get(q), q))
@@ -90,13 +93,13 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
             answers.extend_from_slice(&proxied_rmessage.answers);
             self.cache
                 .lock()
-                .unwrap()
+                .expect("Some thread panicked, stopping program")
                 .replace(question, proxied_rmessage.answers);
         }
         Ok(answers)
     }
 
-    async fn resolve_and_cache(&self, question: &Question) -> io::Result<Message> {
+    async fn resolve_and_cache(&self, question: &Question) -> anyhow::Result<Message> {
         let proxied_qmessage = Message {
             header: Header {
                 id: 42,
@@ -133,7 +136,7 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
         client_socket.send(&serialized_proxied_qmessage).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
         let recv_slice = &recv_buffer[..recv_len];
-        let proxied_rmessage = parse(recv_slice).unwrap();
+        let proxied_rmessage = parse(recv_slice).map_err(anyhow::Error::from_boxed)?;
         trace!(
             from = %self.socket_addr,
             to = %LOCAL_ADDR,
@@ -159,9 +162,8 @@ impl<C: DnsCache> ProcessStrategy for ProxyCacheStrategy<C> {
         buffer: Vec<u8>,
         src_addr: SocketAddr,
         socket: Arc<UdpSocket>,
-    ) -> io::Result<()> {
-        
-        let qmessage = parse(&buffer).unwrap();
+    ) -> anyhow::Result<()> {
+        let qmessage = parse(&buffer).map_err(anyhow::Error::from_boxed)?;
         let questions = &qmessage.questions;
         info!(from = %src_addr, ?questions, "query received");
         trace!(
@@ -208,8 +210,8 @@ impl<C: DnsCache> ProcessStrategy for ProxyCacheStrategy<C> {
     }
 }
 
-fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> io::Result<()> {
-    let question = qmessage.questions.get(0).unwrap();
+fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> anyhow::Result<()> {
+    let question = qmessage.questions.first().context("No questions header")?;
     if qmessage.header.query_response != QueryResponse::Query {
         warn!(
                 from = %src_addr,
@@ -227,7 +229,7 @@ fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> io::Result<()
     Ok(())
 }
 
-fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> io::Result<()> {
+fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> anyhow::Result<()> {
     if rmessage.header.query_response != QueryResponse::Response {
         warn!(
                 from = %socket_addr,

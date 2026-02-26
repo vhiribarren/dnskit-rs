@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+use anyhow::Context;
 use dnskit::protocol::{
     allocate_udp_recv_buffer,
     message::{Message, QueryResponse},
@@ -29,7 +30,6 @@ use dnskit::protocol::{
 };
 use hex::ToHex;
 use std::{
-    io,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
 };
@@ -67,8 +67,8 @@ impl ProcessStrategy for ProxyStrategy {
         buffer: Vec<u8>,
         src_addr: SocketAddr,
         socket: Arc<UdpSocket>,
-    ) -> io::Result<()> {
-        let qmessage = parse(&buffer).unwrap();
+    ) -> anyhow::Result<()> {
+        let qmessage = parse(&buffer).map_err(anyhow::Error::from_boxed)?;
         check_query_valid(&qmessage, &src_addr)?;
         trace!(
             len = buffer.len(),
@@ -83,19 +83,18 @@ impl ProcessStrategy for ProxyStrategy {
         client_socket.send(&buffer).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
 
-        let rmessage = parse(&recv_buffer[..recv_len]).unwrap();
+        let rmessage = parse(&recv_buffer[..recv_len]).map_err(anyhow::Error::from_boxed)?;
         check_response_valid(&rmessage, &self.socket_addr)?;
         trace!(to = %src_addr, len = recv_len, payload = (&recv_buffer[..recv_len]).encode_hex_upper::<String>(), "response");
-        debug!(message = ?parse(&recv_buffer), "response");
+        debug!(message = ?rmessage, "response");
 
         socket.send_to(&recv_buffer[..recv_len], src_addr).await?;
         Ok(())
     }
-    
 }
 
-fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> io::Result<()> {
-    let question = qmessage.questions.get(0).unwrap();
+fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> anyhow::Result<()> {
+    let question = qmessage.questions.first().context("No questions header")?;
     if qmessage.header.query_response == QueryResponse::Query {
         info!(
                 from = %src_addr,
@@ -112,12 +111,15 @@ fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> io::Result<()
                 "was waiting for a query, but has response flag");
     }
     if qmessage.questions.len() != 1 {
-        warn!(count = qmessage.questions.len() , "query do not have 1 query entry");
+        warn!(
+            count = qmessage.questions.len(),
+            "query do not have 1 query entry"
+        );
     }
     Ok(())
 }
 
-fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> io::Result<()> {
+fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> anyhow::Result<()> {
     if rmessage.header.query_response == QueryResponse::Response {
         info!(
                 from = %socket_addr,
@@ -128,7 +130,10 @@ fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> io::Res
                 "was waiting for a response, but has query flag");
     }
     if rmessage.questions.len() != 1 {
-        warn!(count = rmessage.questions.len() , "answer do not have 1 query entry");
+        warn!(
+            count = rmessage.questions.len(),
+            "answer do not have 1 query entry"
+        );
     }
     Ok(())
 }
