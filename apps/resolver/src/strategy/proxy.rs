@@ -24,7 +24,7 @@ SOFTWARE.
 
 use dnskit::protocol::{
     allocate_udp_recv_buffer,
-    message::{Header, Message, QueryResponse},
+    message::{Message, QueryResponse},
     parser::parse,
 };
 use hex::ToHex;
@@ -42,6 +42,7 @@ const LOCAL_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED)
 const TARGET_PROXY_ADDR_DEFAULT: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
 
+#[derive(Clone)]
 pub struct ProxyStrategy {
     socket_addr: SocketAddr,
 }

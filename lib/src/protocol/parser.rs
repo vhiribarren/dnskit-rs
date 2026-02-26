@@ -44,7 +44,7 @@ pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
     let questions = (0..qd_count)
         .map(|_| parse_question(&mut buffer))
         .collect::<Result<Vec<_>, _>>()?;
-    let answer = (0..an_count)
+    let answers = (0..an_count)
         .map(|_| parse_resource_record(&mut buffer, full_payload))
         .collect::<Result<Vec<_>, _>>()?;
     let authority = (0..ns_count)
@@ -56,7 +56,7 @@ pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error>> {
     Ok(Message {
         header,
         questions,
-        answer,
+        answers,
         authority,
         additional,
     })
@@ -300,7 +300,7 @@ mod tests {
         assert_eq!(header.checking_disabled, false);
         assert_eq!(header.response_code, ResponseCode::NoErrorCondition);
         assert_eq!(message.questions.len(), 1);
-        assert_eq!(message.answer.len(), 0);
+        assert_eq!(message.answers.len(), 0);
         assert_eq!(message.authority.len(), 0);
         assert_eq!(message.additional.len(), 1);
     }

@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+mod cache;
 mod strategy;
 
 use dnskit::protocol::allocate_udp_recv_buffer;
@@ -32,6 +33,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::strategy::ProcessStrategy;
 use crate::strategy::proxy::ProxyStrategy;
+use crate::strategy::proxy_cache::ProxyCacheStrategy;
 
 const SOCKET_ADDR_DEFAULT: &str = "127.0.0.1:3553";
 
@@ -53,13 +55,14 @@ async fn launch_server<A>(local_addr: A) -> io::Result<()>
 where
     A: ToSocketAddrs,
 {
-    let process_strategy = Arc::new(ProxyStrategy::default());
+    //let process_strategy = ProxyStrategy::default();
+    let process_strategy = ProxyCacheStrategy::default();
     let socket = Arc::new(UdpSocket::bind(local_addr).await?);
     loop {
         let mut recv_buffer = allocate_udp_recv_buffer();
         let (recv_len, recv_addr) = socket.recv_from(&mut recv_buffer).await?;
 
-        let local_processor = Arc::clone(&process_strategy);
+        let local_processor = process_strategy.clone();
         let local_socket = Arc::clone(&socket);
         tokio::spawn(async move {
             local_processor

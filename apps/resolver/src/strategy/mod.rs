@@ -23,11 +23,12 @@ SOFTWARE.
 */
 
 pub mod proxy;
+pub mod proxy_cache;
 
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{io, net::UdpSocket};
 
-pub trait ProcessStrategy {
+pub trait ProcessStrategy : Clone {
     async fn process_recv_data(
         &self,
         buffer: Vec<u8>,

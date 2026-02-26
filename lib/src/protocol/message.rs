@@ -157,11 +157,11 @@ impl From<QType> for u16 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
-    pub answer: Vec<ResourceRecord>,
+    pub answers: Vec<ResourceRecord>,
     pub authority: Vec<ResourceRecord>,
     pub additional: Vec<ResourceRecord>,
 }
@@ -171,17 +171,26 @@ impl Message {
         let mut payload = Vec::new();
         payload.append(&mut self.header.serialize());
         payload.extend_from_slice(&(self.questions.len() as u16).to_be_bytes());
-        payload.extend_from_slice(&(self.answer.len() as u16).to_be_bytes());
+        payload.extend_from_slice(&(self.answers.len() as u16).to_be_bytes());
         payload.extend_from_slice(&(self.authority.len() as u16).to_be_bytes());
         payload.extend_from_slice(&(self.additional.len() as u16).to_be_bytes());
         self.questions
             .iter()
             .for_each(|q| payload.append(&mut q.serialize()));
+        self.answers
+            .iter()
+            .for_each(|rr| payload.append(&mut rr.serialize()));
+        self.authority
+            .iter()
+            .for_each(|rr| payload.append(&mut rr.serialize()));
+        self.additional
+            .iter()
+            .for_each(|rr| payload.append(&mut rr.serialize()));
         payload
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Header {
     pub id: Id,
     pub query_response: QueryResponse,
@@ -197,7 +206,7 @@ pub struct Header {
 }
 
 impl Header {
-    pub fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         let mut chunk = Vec::new();
         chunk.extend_from_slice(&self.id.to_be_bytes());
         let mut flags = 0_u16;
@@ -337,12 +346,13 @@ impl Question {
         self.qname.join(".")
     }
 
-    pub fn serialize(&self) -> Vec<u8> {
+    fn serialize(&self) -> Vec<u8> {
         let mut chunk = Vec::new();
         for label in &self.qname {
             chunk.push(label.len() as u8);
             chunk.extend_from_slice(&label.as_bytes())
         }
+        chunk.push(0u8);       
         chunk.extend_from_slice(&u16::from(self.qtype).to_be_bytes());
         chunk.extend_from_slice(&u16::from(self.qclass).to_be_bytes());
         chunk
@@ -371,7 +381,7 @@ impl CompressedName {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResourceRecord {
     pub name: Vec<String>,
     pub r#type: Type,
@@ -386,6 +396,11 @@ impl ResourceRecord {
     }
     pub fn serialize(&self) -> Vec<u8> {
         let mut chunk = Vec::new();
+        for label in &self.name {
+            chunk.push(label.len() as u8);
+            chunk.extend_from_slice(&label.as_bytes())
+        }
+        chunk.push(0u8);   
         chunk.extend_from_slice(&u16::from(self.r#type).to_be_bytes());
         chunk.extend_from_slice(&u16::from(self.class).to_be_bytes());
         chunk.extend_from_slice(&((self.ttl - Instant::now()).as_secs() as u32).to_be_bytes());
@@ -397,10 +412,39 @@ impl ResourceRecord {
 
 #[cfg(test)]
 mod tests {
+    use crate::protocol::parser::parse;
+
     use super::*;
 
-    const PAYLOAD: &'static str = "F29D818000010005000000010377777704616C6561036E65740000010001C00C0005000100002A3000170B766869726962617272656E0667697468756202696F00C02A0001000100000E100004B9C76E99C02A0001000100000E100004B9C76C99C02A0001000100000E100004B9C76F99C02A0001000100000E100004B9C76D990000290200000000000000";
-
     #[test]
-    fn test_parse_header() {}
+    fn test_serialize_deserialize_full() {
+        let qmessage = Message {
+            header: Header {
+                id: 42,
+                query_response: QueryResponse::Query,
+                opcode: OpCode::Query,
+                authoritative_answer: false,
+                truncation: false,
+                recursion_desired: true,
+                recursion_available: false,
+                reserved: false,
+                authentic_data: false,
+                checking_disabled: true,
+                response_code: ResponseCode::NoErrorCondition,
+            },
+            questions: vec![
+                Question::new(
+                    "www.alea.net",
+                    QClass::Class(Class::Internet),
+                    QType::Type(Type::A),
+                )
+                .unwrap(),
+            ],
+            answers: Vec::new(),
+            authority: Vec::new(),
+            additional: Vec::new(),
+        };
+        let bin_message = qmessage.serialize();
+        assert_eq!(qmessage, parse(&bin_message).unwrap());
+    }
 }
