@@ -22,38 +22,42 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::error::Error;
+use crate::{ParseError, TextError, protocol::NAME_LEN_MAX};
 
 pub struct TXT {
     entries: Vec<String>,
 }
 
 impl TXT {
-    pub fn with_single(entry: &str) -> Result<Self, Box<dyn Error>> {
-        if entry.len() > 255 {
-            return Err("error".into());
+    pub fn with_single(entry: &str) -> Result<Self, TextError> {
+        if entry.len() > NAME_LEN_MAX - 1 {
+            return Err(TextError::InvalidNameSize { text: entry.into() });
         }
-        Ok(Self { entries: vec![entry.to_string()] })
+        Ok(Self {
+            entries: vec![entry.to_string()],
+        })
     }
 
-    pub fn with_multiple(entries: Vec<String>) -> Result<Self, Box<dyn Error>> {
+    pub fn with_multiple(entries: Vec<String>) -> Result<Self, TextError> {
         for entry in &entries {
-            if entry.len() > 255 {
-                return Err("error".into());
+            if entry.len() > NAME_LEN_MAX - 1 {
+                return Err(TextError::InvalidNameSize { text: entry.into() });
             }
         }
         Ok(Self { entries })
     }
 
-    pub fn parse(mut buffer: &[u8]) -> Result<Self, Box<dyn Error>> {
+    pub fn parse(mut buffer: &[u8]) -> Result<Self, ParseError> {
         let mut entries = Vec::new();
-        while let buff_len = buffer.len() && buff_len > 0 {
+        while let buff_len = buffer.len()
+            && buff_len > 0
+        {
             let len = buffer[0] as usize;
-            if buff_len < len+1 {
-                return Err("error".into());
+            if buff_len < len + 1 {
+                return Err(ParseError::InvalidSliceSize);
             }
-            entries.push(String::from_utf8_lossy(&buffer[1..1+len]).to_string());
-            buffer = &buffer[1+len..];
+            entries.push(String::from_utf8_lossy(&buffer[1..1 + len]).to_string());
+            buffer = &buffer[1 + len..];
         }
         Ok(Self { entries })
     }

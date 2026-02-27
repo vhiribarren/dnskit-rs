@@ -17,4 +17,5 @@ name = "dnskit"
 
 hex.workspace = true
 rand.workspace = true
+thiserror.workspace = true
 tracing.workspace = true

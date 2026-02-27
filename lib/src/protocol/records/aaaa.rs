@@ -22,7 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{error::Error, net::Ipv6Addr};
+use std::net::Ipv6Addr;
+
+use crate::ParseError;
 
 pub struct AAAA {
     ipv6: Ipv6Addr,
@@ -33,7 +35,7 @@ impl AAAA {
         Self { ipv6 }
     }
 
-    pub fn parse(buffer: &[u8]) -> Result<Self, Box<dyn Error>> {
+    pub fn parse(buffer: &[u8]) -> Result<Self, ParseError> {
         Ok(Self {
             ipv6: Ipv6Addr::from_octets(buffer.try_into()?),
         })

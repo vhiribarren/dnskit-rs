@@ -22,7 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{error::Error, time::Instant};
+use std::time::Instant;
+
+use crate::{
+    NamingError, UnexpectedValueError,
+    protocol::{LABEL_LEN_MAX, NAME_LEN_MAX},
+};
 
 macro_rules! int_enum_with_catchall_u16 {
     (
@@ -234,12 +239,12 @@ pub enum QueryResponse {
 }
 
 impl TryFrom<u8> for QueryResponse {
-    type Error = &'static str;
+    type Error = UnexpectedValueError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Ok(match value {
             0 => QueryResponse::Query,
             1 => QueryResponse::Response,
-            _ => return Err("Unknown value"),
+            other => return Err(UnexpectedValueError(format!("This value should not happen: {other}"))),
         })
     }
 }
@@ -262,14 +267,14 @@ pub enum OpCode {
 }
 
 impl TryFrom<u8> for OpCode {
-    type Error = &'static str;
+    type Error = UnexpectedValueError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Ok(match value {
             0 => OpCode::Query,
             1 => OpCode::InverseQuery,
             2 => OpCode::Status,
             x @ 3..=15 => OpCode::Reserved(x),
-            _ => return Err("Unknown value"),
+            other => return Err(UnexpectedValueError(format!("This value should not happen: {other}"))),
         })
     }
 }
@@ -297,7 +302,7 @@ pub enum ResponseCode {
 }
 
 impl TryFrom<u8> for ResponseCode {
-    type Error = &'static str;
+    type Error = UnexpectedValueError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Ok(match value {
             0 => ResponseCode::NoErrorCondition,
@@ -307,7 +312,7 @@ impl TryFrom<u8> for ResponseCode {
             4 => ResponseCode::NotImplemented,
             5 => ResponseCode::Refused,
             x @ 6..=15 => ResponseCode::Reserved(x),
-            _ => return Err("Unknown value"),
+            other => return Err(UnexpectedValueError(format!("This value should not happen: {other}"))),
         })
     }
 }
@@ -334,8 +339,17 @@ pub struct Question {
 }
 
 impl Question {
-    pub fn new(name: &str, qclass: QClass, qtype: QType) -> Result<Question, Box<dyn Error>> {
-        let qname = name.split('.').map(str::to_owned).collect();
+    pub fn new(name: &str, qclass: QClass, qtype: QType) -> Result<Question, NamingError> {
+        if name.len() > NAME_LEN_MAX - 1 {
+            return Err(NamingError::InvalidNameSize { name: name.into() });
+        }
+        let qname = name.split('.').map(String::from).collect::<Vec<_>>();
+        for label in &qname {
+            let label_len = label.len();
+            if label_len > LABEL_LEN_MAX {
+                return Err(NamingError::InvalidLabelSize { label: label.into() });
+            }
+        }
         Ok(Question {
             qname,
             qtype,
@@ -352,7 +366,7 @@ impl Question {
             chunk.push(label.len() as u8);
             chunk.extend_from_slice(&label.as_bytes())
         }
-        chunk.push(0u8);       
+        chunk.push(0u8);
         chunk.extend_from_slice(&u16::from(self.qtype).to_be_bytes());
         chunk.extend_from_slice(&u16::from(self.qclass).to_be_bytes());
         chunk
@@ -400,7 +414,7 @@ impl ResourceRecord {
             chunk.push(label.len() as u8);
             chunk.extend_from_slice(&label.as_bytes())
         }
-        chunk.push(0u8);   
+        chunk.push(0u8);
         chunk.extend_from_slice(&u16::from(self.r#type).to_be_bytes());
         chunk.extend_from_slice(&u16::from(self.class).to_be_bytes());
         chunk.extend_from_slice(&((self.ttl - Instant::now()).as_secs() as u32).to_be_bytes());

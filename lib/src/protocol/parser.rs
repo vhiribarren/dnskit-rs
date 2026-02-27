@@ -22,17 +22,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{error::Error, time::{Duration, Instant}};
+use std::{
+    array::TryFromSliceError,
+    time::{Duration, Instant},
+};
 
-use crate::protocol::{
-    LABEL_LEN_MAX, NAME_LEN_MAX,
-    message::{
-        CompressedName, Header, Label, Message, OpCode, QClass, QType, QueryResponse, Question,
-        ResourceRecord, ResponseCode,
+use crate::{
+    ParseError, UnexpectedValueError,
+    protocol::{
+        LABEL_LEN_MAX, NAME_LEN_MAX,
+        message::{
+            CompressedName, Header, Label, Message, OpCode, QClass, QType, QueryResponse, Question,
+            ResourceRecord, ResponseCode,
+        },
     },
 };
 
-pub fn parse(mut buffer: &[u8]) -> Result<Message, Box<dyn Error + Send + Sync + 'static>> {
+pub fn parse(mut buffer: &[u8]) -> Result<Message, ParseError> {
     let full_payload = buffer;
     let FullHeader {
         header,
@@ -70,7 +76,7 @@ struct FullHeader {
     ar_count: u16,
 }
 
-fn parse_header(buffer: &mut &[u8]) -> Result<FullHeader, Box<dyn Error + Send + Sync>> {
+fn parse_header(buffer: &mut &[u8]) -> Result<FullHeader, ParseError> {
     let id = consume_u16(buffer)?;
     let query_response = QueryResponse::try_from(extract_from_u8(buffer[0], 7, 7))?;
     let opcode = OpCode::try_from(extract_from_u8(buffer[0], 3, 6))?;
@@ -110,14 +116,15 @@ fn parse_header(buffer: &mut &[u8]) -> Result<FullHeader, Box<dyn Error + Send +
     })
 }
 
-fn parse_question(buffer: &mut &[u8]) -> Result<Question, Box<dyn Error + Send + Sync>> {
+fn parse_question(buffer: &mut &[u8]) -> Result<Question, ParseError> {
     let mut qname = Vec::new(); // TODO Ensure name and lables are ASCII and within max level ranges
-    while let Ok(length) = consume_u8(buffer) {
+    loop {
+        let length = consume_u8(buffer);
         if length == 0 {
             break;
         }
         qname.push(String::from_utf8(
-            consume_slice(buffer, length as usize)?.into(),
+            consume_slice(buffer, length as usize).into(),
         )?);
     }
     let qtype = QType::from(consume_u16(buffer)?);
@@ -132,13 +139,13 @@ fn parse_question(buffer: &mut &[u8]) -> Result<Question, Box<dyn Error + Send +
 fn parse_resource_record(
     buffer: &mut &[u8],
     full_buffer: &[u8],
-) -> Result<ResourceRecord, Box<dyn Error + Send + Sync>> {
+) -> Result<ResourceRecord, ParseError> {
     let name = parse_resource_record_name(buffer, full_buffer)?;
     let r#type = consume_u16(buffer)?.into();
     let class = consume_u16(buffer)?.into();
     let ttl = Instant::now() + Duration::from_secs(consume_u32(buffer)? as u64);
     let rdlength = consume_u16(buffer)?;
-    let rdata = consume_slice(buffer, rdlength as usize)?.into();
+    let rdata = consume_slice(buffer, rdlength as usize).into();
     Ok(ResourceRecord {
         name: name.labels(),
         r#type,
@@ -151,7 +158,7 @@ fn parse_resource_record(
 fn parse_resource_record_name(
     buffer: &mut &[u8],
     full_buffer: &[u8],
-) -> Result<CompressedName, Box<dyn Error + Send + Sync>> {
+) -> Result<CompressedName, ParseError> {
     let mut name_len = 0;
     let mut name = Vec::new();
     let mut marker;
@@ -164,31 +171,40 @@ fn parse_resource_record_name(
             break;
         }
         if marker != 0b00 {
-            return Err("error".into());
+            return Err(
+                UnexpectedValueError(format!("Was waiting for 0b00 but got: {marker}")).into(),
+            );
         }
-        let length = consume_u8(buffer)? as usize;
+        let length = consume_u8(buffer) as usize;
         if length == 0 {
             if name_len + 1 > NAME_LEN_MAX {
-                return Err("error".into());
+                return Err(ParseError::InvalidStringSize {
+                    expected_max: NAME_LEN_MAX,
+                    actual: name_len + 1,
+                });
             }
             return Ok(CompressedName(name));
         }
         if length > LABEL_LEN_MAX {
-            return Err("error".into());
+            panic!("Length should be less than 64 but is {length}");
         }
         name_len += 1 + length;
         if name_len > NAME_LEN_MAX {
-            return Err("error".into());
+            return Err(ParseError::InvalidStringSize {
+                expected_max: NAME_LEN_MAX,
+                actual: name_len,
+            });
         }
         name.push(Label {
             offsets: Vec::new(),
-            value: String::from_utf8(consume_slice(buffer, length as usize)?.into())?,
+            value: String::from_utf8(consume_slice(buffer, length as usize).into())?,
         });
     }
 
     assert_eq!(marker, 0b11);
-    assert_eq!(offsets.len(), 1);
-    let mut offset = *offsets.last().unwrap();
+    let mut offset = *offsets
+        .last()
+        .expect("Vector should have a size of 1 at this step");
     // TODO Should also check if there is a cycle
     // TODO Should ensure we do not go outside of bounds
     loop {
@@ -202,16 +218,22 @@ fn parse_resource_record_name(
                 let length = full_buffer[offset] as usize;
                 if length == 0 {
                     if name_len + 1 > NAME_LEN_MAX {
-                        return Err("error".into());
+                        return Err(ParseError::InvalidStringSize {
+                            expected_max: NAME_LEN_MAX,
+                            actual: name_len + 1,
+                        });
                     }
                     return Ok(CompressedName(name));
                 }
                 if length > LABEL_LEN_MAX {
-                    return Err("error".into());
+                    panic!("Length should be less than 64 but is {length}");
                 }
                 name_len += length + 1;
                 if name_len > NAME_LEN_MAX {
-                    return Err("error".into());
+                    return Err(ParseError::InvalidStringSize {
+                        expected_max: NAME_LEN_MAX,
+                        actual: name_len,
+                    });
                 }
                 name.push(Label {
                     offsets,
@@ -221,7 +243,10 @@ fn parse_resource_record_name(
                 offset += length + 1;
             }
             _ => {
-                return Err("error".into());
+                return Err(UnexpectedValueError(format!(
+                    "Was waiting for 0b00 but got: {marker}"
+                ))
+                .into());
             }
         }
     }
@@ -232,29 +257,29 @@ fn consume(buffer: &mut &[u8], count: usize) {
     *buffer = &buffer[count..];
 }
 
-fn consume_slice<'a>(buffer: &mut &'a [u8], count: usize) -> Result<&'a [u8], Box<dyn Error + Send + Sync>> {
+fn consume_slice<'a>(buffer: &mut &'a [u8], count: usize) -> &'a [u8] {
     let result = &buffer[..count];
     consume(buffer, count);
-    Ok(result)
+    result
 }
 
-fn peek_u16(buffer: &[u8]) -> Result<u16, Box<dyn Error + Send + Sync>> {
+fn peek_u16(buffer: &[u8]) -> Result<u16, TryFromSliceError> {
     Ok(u16::from_be_bytes(buffer[..2].try_into()?))
 }
 
-fn consume_u8(buffer: &mut &[u8]) -> Result<u8, Box<dyn Error + Send + Sync>> {
+fn consume_u8(buffer: &mut &[u8]) -> u8 {
     let val = buffer[0];
     consume(buffer, 1);
-    Ok(val)
+    val
 }
 
-fn consume_u16(buffer: &mut &[u8]) -> Result<u16, Box<dyn Error + Send + Sync>> {
+fn consume_u16(buffer: &mut &[u8]) -> Result<u16, TryFromSliceError> {
     let val = u16::from_be_bytes(buffer[..2].try_into()?);
     consume(buffer, 2);
     Ok(val)
 }
 
-fn consume_u32(buffer: &mut &[u8]) -> Result<u32, Box<dyn Error + Send + Sync>> {
+fn consume_u32(buffer: &mut &[u8]) -> Result<u32, TryFromSliceError> {
     let val = u32::from_be_bytes(buffer[..4].try_into()?);
     consume(buffer, 4);
     Ok(val)

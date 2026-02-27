@@ -22,7 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::{error::Error, net::Ipv4Addr};
+use std::net::Ipv4Addr;
+
+use crate::ParseError;
 
 pub struct A {
     ipv4: Ipv4Addr,
@@ -33,7 +35,7 @@ impl A {
         Self { ipv4 }
     }
 
-    pub fn parse(buffer: &[u8]) -> Result<Self, Box<dyn Error>> {
+    pub fn parse(buffer: &[u8]) -> Result<Self, ParseError> {
         Ok(Self {
             ipv4: Ipv4Addr::from_octets(buffer.try_into()?),
         })

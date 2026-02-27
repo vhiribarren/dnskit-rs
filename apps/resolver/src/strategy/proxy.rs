@@ -68,7 +68,7 @@ impl ProcessStrategy for ProxyStrategy {
         src_addr: SocketAddr,
         socket: Arc<UdpSocket>,
     ) -> anyhow::Result<()> {
-        let qmessage = parse(&buffer).map_err(anyhow::Error::from_boxed)?;
+        let qmessage = parse(&buffer)?;
         check_query_valid(&qmessage, &src_addr)?;
         trace!(
             len = buffer.len(),
@@ -83,7 +83,7 @@ impl ProcessStrategy for ProxyStrategy {
         client_socket.send(&buffer).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
 
-        let rmessage = parse(&recv_buffer[..recv_len]).map_err(anyhow::Error::from_boxed)?;
+        let rmessage = parse(&recv_buffer[..recv_len])?;
         check_response_valid(&rmessage, &self.socket_addr)?;
         trace!(to = %src_addr, len = recv_len, payload = (&recv_buffer[..recv_len]).encode_hex_upper::<String>(), "response");
         debug!(message = ?rmessage, "response");

@@ -22,31 +22,39 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use std::error::Error;
+use crate::{
+    NamingError, ParseError, protocol::{LABEL_LEN_MAX, NAME_LEN_MAX}
+};
 
 pub struct CNAME {
     labels: Vec<String>,
 }
 
 impl CNAME {
-    pub fn new(name: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(name: &str) -> Result<Self, NamingError> {
+        if name.len() > NAME_LEN_MAX - 1 {
+            return Err(NamingError::InvalidNameSize { name: name.into() });
+        }
         let labels = name.split('.').map(String::from).collect::<Vec<_>>();
         for label in &labels {
-            if label.len() > 255 {
-                return Err("error".into());
+            let label_len = label.len();
+            if label_len > LABEL_LEN_MAX {
+                return Err(NamingError::InvalidLabelSize {
+                    label: label.into(),
+                });
             }
         }
         Ok(Self { labels })
     }
 
-    pub fn parse(mut buffer: &[u8]) -> Result<Self, Box<dyn Error>> {
+    pub fn parse(mut buffer: &[u8]) -> Result<Self, ParseError> {
         let mut labels = Vec::new();
         while let buff_len = buffer.len()
             && buff_len > 0
         {
             let len = buffer[0] as usize;
             if buff_len < len + 1 {
-                return Err("error".into());
+                return Err(ParseError::InvalidSliceSize);
             }
             labels.push(String::from_utf8_lossy(&buffer[1..1 + len]).to_string());
             buffer = &buffer[1 + len..];

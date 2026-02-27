@@ -24,3 +24,47 @@ SOFTWARE.
 
 pub mod hints;
 pub mod protocol;
+
+use std::{array::TryFromSliceError, string::FromUtf8Error};
+
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum NamingError {
+    #[error("Name {name} has size {len} above max limit.", len = .name.len())]
+    InvalidNameSize { name: String },
+    #[error("Label {label} size {len} above max limit.", len = .label.len())]
+    InvalidLabelSize { label: String },  
+} 
+
+#[derive(Error, Debug)]
+pub enum TextError {
+    #[error("Text has size {len} above max limit.", len = .text.len())]
+    InvalidNameSize { text: String },
+}
+
+#[derive(Error, Debug)]
+#[error("Error: {0}")]
+pub struct UnexpectedValueError(String);
+
+
+#[derive(Error, Debug)]
+pub enum ParseError {
+    #[error("Name has size {actual} above max limit {expected_max}.")]
+    InvalidStringSize {
+        expected_max: usize,
+        actual: usize,
+    },
+
+    #[error("The size of the slice is not compatible with the ongoing processing")]
+    InvalidSliceSize,
+
+    #[error(transparent)]
+    InvalidSliceConversion(#[from] TryFromSliceError),
+
+    #[error(transparent)]
+    CharacterConversion(#[from] FromUtf8Error),
+
+    #[error(transparent)]
+    UnexpectedValue(#[from] UnexpectedValueError),
+}

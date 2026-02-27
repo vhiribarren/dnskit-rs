@@ -136,7 +136,7 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
         client_socket.send(&serialized_proxied_qmessage).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
         let recv_slice = &recv_buffer[..recv_len];
-        let proxied_rmessage = parse(recv_slice).map_err(anyhow::Error::from_boxed)?;
+        let proxied_rmessage = parse(recv_slice)?;
         trace!(
             from = %self.socket_addr,
             to = %LOCAL_ADDR,
@@ -163,7 +163,7 @@ impl<C: DnsCache> ProcessStrategy for ProxyCacheStrategy<C> {
         src_addr: SocketAddr,
         socket: Arc<UdpSocket>,
     ) -> anyhow::Result<()> {
-        let qmessage = parse(&buffer).map_err(anyhow::Error::from_boxed)?;
+        let qmessage = parse(&buffer)?;
         let questions = &qmessage.questions;
         info!(from = %src_addr, ?questions, "query received");
         trace!(
