@@ -53,7 +53,7 @@ pub struct ProxyCacheStrategy<C> {
 impl<C> Clone for ProxyCacheStrategy<C> {
     fn clone(&self) -> Self {
         Self {
-            socket_addr: self.socket_addr.clone(),
+            socket_addr: self.socket_addr,
             cache: Arc::clone(&self.cache),
         }
     }
@@ -133,7 +133,7 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
         client_socket.connect(self.socket_addr).await?;
 
         let mut recv_buffer = allocate_udp_recv_buffer();
-        client_socket.send(&serialized_proxied_qmessage).await?;
+        client_socket.send(serialized_proxied_qmessage).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
         let recv_slice = &recv_buffer[..recv_len];
         let proxied_rmessage = parse(recv_slice)?;

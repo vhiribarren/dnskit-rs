@@ -364,7 +364,7 @@ impl Question {
         let mut chunk = Vec::new();
         for label in &self.qname {
             chunk.push(label.len() as u8);
-            chunk.extend_from_slice(&label.as_bytes())
+            chunk.extend_from_slice(label.as_bytes())
         }
         chunk.push(0u8);
         chunk.extend_from_slice(&u16::from(self.qtype).to_be_bytes());
@@ -412,7 +412,7 @@ impl ResourceRecord {
         let mut chunk = Vec::new();
         for label in &self.name {
             chunk.push(label.len() as u8);
-            chunk.extend_from_slice(&label.as_bytes())
+            chunk.extend_from_slice(label.as_bytes())
         }
         chunk.push(0u8);
         chunk.extend_from_slice(&u16::from(self.r#type).to_be_bytes());
