@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 use anyhow::Context;
+use async_trait::async_trait;
 use dnskit::protocol::{
     allocate_udp_recv_buffer,
     message::{Header, Message, OpCode, QueryResponse, Question, ResourceRecord, ResponseCode},
@@ -155,7 +156,8 @@ impl Default for ProxyCacheStrategy<DnsCacheMemory> {
     }
 }
 
-impl<C: DnsCache> ProcessStrategy for ProxyCacheStrategy<C> {
+#[async_trait]
+impl<C: DnsCache + Send + Sync> ProcessStrategy for ProxyCacheStrategy<C> {
     #[instrument(skip_all)]
     async fn process_recv_data(
         &self,

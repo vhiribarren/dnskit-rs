@@ -19,6 +19,7 @@ impl DnsCacheMemory {
     }
 }
 
+// TODO comparison should be case insensitive
 impl DnsCache for DnsCacheMemory {
     fn get(&mut self, question: &Question) -> Option<Vec<ResourceRecord>> {
         let now = Instant::now();

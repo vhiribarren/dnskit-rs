@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 use anyhow::Context;
+use async_trait::async_trait;
 use dnskit::protocol::{
     allocate_udp_recv_buffer,
     message::{Message, QueryResponse},
@@ -60,6 +61,7 @@ impl Default for ProxyStrategy {
     }
 }
 
+#[async_trait]
 impl ProcessStrategy for ProxyStrategy {
     #[instrument(skip_all)]
     async fn process_recv_data(

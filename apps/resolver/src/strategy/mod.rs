@@ -26,9 +26,11 @@ pub mod proxy;
 pub mod proxy_cache;
 
 use std::{net::SocketAddr, sync::Arc};
+use async_trait::async_trait;
 use tokio::net::UdpSocket;
 
-pub trait ProcessStrategy: Clone {
+#[async_trait]
+pub trait ProcessStrategy: Send + Sync {
     async fn process_recv_data(
         &self,
         buffer: Vec<u8>,
