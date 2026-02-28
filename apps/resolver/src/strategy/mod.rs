@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-pub mod proxy;
+pub mod transparent;
 pub mod proxy_cache;
 
 use async_trait::async_trait;

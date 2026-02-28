@@ -36,19 +36,19 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::strategy::{LOCAL_ADDR, ProcessStrategy};
 
-pub struct ProxyStrategy {
+pub struct TransparentProxyStrategy {
     socket_addr: SocketAddr,
 }
 
-impl ProxyStrategy {
+impl TransparentProxyStrategy {
     pub fn new(socket_addr: SocketAddr) -> Self {
-        info!("Proxy strategy configured with target address: {socket_addr}");
-        ProxyStrategy { socket_addr }
+        info!("Transparent Proxy strategy configured with target address: {socket_addr}");
+        TransparentProxyStrategy { socket_addr }
     }
 }
 
 #[async_trait]
-impl ProcessStrategy for ProxyStrategy {
+impl ProcessStrategy for TransparentProxyStrategy {
     #[instrument(skip_all)]
     async fn process_recv_data(
         &self,

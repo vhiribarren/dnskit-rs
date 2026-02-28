@@ -35,7 +35,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::cache::memory::DnsCacheMemory;
 use crate::strategy::ProcessStrategy;
-use crate::strategy::proxy::ProxyStrategy;
+use crate::strategy::transparent::TransparentProxyStrategy;
 use crate::strategy::proxy_cache::ProxyCacheStrategy;
 
 const APP_NAME: &str = env!("CARGO_PKG_NAME");
@@ -69,7 +69,7 @@ struct Args {
     /// without modifications. Local cache is disabled.
     /// (only valid with --proxy)
     #[arg(long, requires = "proxy")]
-    passthrough: bool,
+    transparent: bool,
 
     /// Target host when proxy mode is enabled.
     /// (only valid with --proxy)
@@ -106,8 +106,8 @@ async fn main() -> anyhow::Result<()> {
                 .await?
                 .next()
                 .unwrap();
-            if args.passthrough {
-                Arc::new(ProxyStrategy::new(target_sockaddr))
+            if args.transparent {
+                Arc::new(TransparentProxyStrategy::new(target_sockaddr))
             } else {
                 Arc::new(ProxyCacheStrategy::new(
                     target_sockaddr,
