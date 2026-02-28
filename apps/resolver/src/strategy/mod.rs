@@ -22,8 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-pub mod transparent;
 pub mod proxy_cache;
+pub mod transparent;
 
 use async_trait::async_trait;
 use std::{

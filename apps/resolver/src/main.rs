@@ -35,16 +35,16 @@ use tracing_subscriber::EnvFilter;
 
 use crate::cache::memory::DnsCacheMemory;
 use crate::strategy::ProcessStrategy;
-use crate::strategy::transparent::TransparentProxyStrategy;
 use crate::strategy::proxy_cache::ProxyCacheStrategy;
+use crate::strategy::transparent::TransparentProxyStrategy;
 
 const APP_NAME: &str = env!("CARGO_PKG_NAME");
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DNS_PORT: u16 = 53;
 
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
+#[command(author, version, about, long_about = None, next_line_help = true, disable_help_subcommand = true)]
+struct CliArgs {
     /// More execution information, up to -vvv
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -65,26 +65,30 @@ struct Args {
     #[arg(long)]
     proxy: bool,
 
+    #[command(flatten, next_help_heading = "Proxy Options")]
+    proxy_args: ProxyArgs,
+}
+
+#[derive(clap::Args, Debug)]
+#[group(requires = "proxy")]
+struct ProxyArgs {
     /// Requests are transmitted as is to another resolver,
     /// without modifications. Local cache is disabled.
-    /// (only valid with --proxy)
-    #[arg(long, requires = "proxy")]
+    #[arg(long)]
     transparent: bool,
 
     /// Target host when proxy mode is enabled.
-    /// (only valid with --proxy)
-    #[arg(long, default_value = "8.8.8.8", requires = "proxy")]
+    #[arg(long, default_value = "8.8.8.8")]
     target_host: String,
 
     /// Target port when proxy mode is enabled.
-    /// (only valid with --proxy)
-    #[arg(long,  default_value_t = DNS_PORT, requires = "proxy")]
+    #[arg(long,  default_value_t = DNS_PORT)]
     target_port: u16,
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let args = CliArgs::parse();
 
     println!("\n");
     println!("Starting {APP_NAME} {APP_VERSION}.");
@@ -102,11 +106,12 @@ async fn main() -> anyhow::Result<()> {
 
     let process_strategy: Arc<dyn ProcessStrategy> = {
         if args.proxy {
-            let target_sockaddr = lookup_host((args.target_host, args.target_port))
-                .await?
-                .next()
-                .unwrap();
-            if args.transparent {
+            let target_sockaddr =
+                lookup_host((args.proxy_args.target_host, args.proxy_args.target_port))
+                    .await?
+                    .next()
+                    .unwrap();
+            if args.proxy_args.transparent {
                 Arc::new(TransparentProxyStrategy::new(target_sockaddr))
             } else {
                 Arc::new(ProxyCacheStrategy::new(
