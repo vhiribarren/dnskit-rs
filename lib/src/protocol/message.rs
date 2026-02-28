@@ -24,8 +24,10 @@ SOFTWARE.
 
 use std::time::Instant;
 
+use tracing::warn;
+
 use crate::{
-    NamingError, UnexpectedValueError,
+    NamingError, QueryMessageError, ResponseMessageError, UnexpectedValueError,
     protocol::{LABEL_LEN_MAX, NAME_LEN_MAX},
 };
 
@@ -192,6 +194,32 @@ impl Message {
             .iter()
             .for_each(|rr| payload.append(&mut rr.serialize()));
         payload
+    }
+
+    pub fn check_valid_query(&self) -> Result<(), QueryMessageError> {
+        if self.header.query_response != QueryResponse::Query {
+            return Err(QueryMessageError::NotQuery);
+        }
+        if self.questions.is_empty() {
+            return Err(QueryMessageError::NoQuestions);
+        }
+        if self.questions.len() > 1 {
+            warn!(message = ?self, "Message has {} > 1 question counts", self.questions.len());
+        }
+        Ok(())
+    }
+
+    pub fn check_valid_response(&self) -> Result<(), ResponseMessageError> {
+        if self.header.query_response != QueryResponse::Response {
+            return Err(ResponseMessageError::NotResponse);
+        }
+        if self.questions.is_empty() {
+            return Err(ResponseMessageError::NoQuestions);
+        }
+        if self.questions.len() > 1 {
+            warn!(message = ?self, "Message has {} > 1 question counts", self.questions.len());
+        }
+        Ok(())
     }
 }
 

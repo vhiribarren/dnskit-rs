@@ -64,3 +64,19 @@ pub enum ParseError {
     #[error(transparent)]
     UnexpectedValue(#[from] UnexpectedValueError),
 }
+
+#[derive(Error, Debug)]
+pub enum QueryMessageError {
+    #[error("Questions count is zero.")]
+    NoQuestions,
+    #[error("The message does not have the query flag")]
+    NotQuery,
+}
+
+#[derive(Error, Debug)]
+pub enum ResponseMessageError {
+    #[error("Questions count is zero.")]
+    NoQuestions,
+    #[error("The message does not have the query flag")]
+    NotResponse,
+}

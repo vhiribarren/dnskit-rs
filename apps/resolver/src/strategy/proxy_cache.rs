@@ -22,7 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use anyhow::Context;
 use async_trait::async_trait;
 use dnskit::protocol::{
     allocate_udp_recv_buffer,
@@ -77,7 +76,10 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
             }
             debug!(question = ?question, "not in cache, querying {}", self.socket_addr);
             let proxied_rmessage = self.resolve_and_cache(question).await?;
-            check_response_valid(&proxied_rmessage, &self.socket_addr)?;
+            proxied_rmessage.check_valid_response().map_err(|err| {
+                warn!(?err, ?proxied_rmessage, "not processing invalid message");
+                err
+            })?;
             answers.extend_from_slice(&proxied_rmessage.answers);
             self.cache
                 .lock()
@@ -156,7 +158,10 @@ impl<C: DnsCache + Send + Sync> ProcessStrategy for ProxyCacheStrategy<C> {
             message = ?qmessage
         );
 
-        check_query_valid(&qmessage, &src_addr)?;
+        qmessage.check_valid_query().map_err(|err| {
+            warn!(?err, ?qmessage, "not processing invalid message");
+            err
+        })?;
 
         let answers = self.get_or_resolve(questions).await?;
 
@@ -179,6 +184,11 @@ impl<C: DnsCache + Send + Sync> ProcessStrategy for ProxyCacheStrategy<C> {
             authority: Vec::new(),
             additional: Vec::new(),
         };
+        rmessage.check_valid_query().map_err(|err| {
+            warn!(?err, ?rmessage, "not processing invalid message");
+            err
+        })?;
+
         let serialized_rmessage = rmessage.serialize();
 
         info!(to = %src_addr, ?questions, ?answers, "response sent");
@@ -191,38 +201,4 @@ impl<C: DnsCache + Send + Sync> ProcessStrategy for ProxyCacheStrategy<C> {
         socket.send_to(&serialized_rmessage, src_addr).await?;
         Ok(())
     }
-}
-
-fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> anyhow::Result<()> {
-    let question = qmessage.questions.first().context("No questions header")?;
-    if qmessage.header.query_response != QueryResponse::Query {
-        warn!(
-                from = %src_addr,
-                qclass = ?question.qclass,
-                qtype = ?question.qtype,
-                qname = question.name(),
-                "was waiting for a query, but has response flag");
-    }
-    if qmessage.questions.len() != 1 {
-        warn!(
-            count = qmessage.questions.len(),
-            "query do not have 1 query entry"
-        );
-    }
-    Ok(())
-}
-
-fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> anyhow::Result<()> {
-    if rmessage.header.query_response != QueryResponse::Response {
-        warn!(
-                from = %socket_addr,
-                "was waiting for a response, but has query flag");
-    }
-    if rmessage.questions.len() != 1 {
-        warn!(
-            count = rmessage.questions.len(),
-            "answer do not have 1 query entry"
-        );
-    }
-    Ok(())
 }

@@ -22,17 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-use anyhow::Context;
 use async_trait::async_trait;
-use dnskit::protocol::{
-    allocate_udp_recv_buffer,
-    message::{Message, QueryResponse},
-    parser::parse,
-};
+use dnskit::protocol::{allocate_udp_recv_buffer, parser::parse};
 use hex::ToHex;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{info, instrument, trace, warn};
 
 use crate::strategy::{LOCAL_ADDR, ProcessStrategy};
 
@@ -57,12 +52,19 @@ impl ProcessStrategy for TransparentProxyStrategy {
         socket: Arc<UdpSocket>,
     ) -> anyhow::Result<()> {
         let qmessage = parse(&buffer)?;
-        check_query_valid(&qmessage, &src_addr)?;
+        let rquestions = &qmessage.questions;
+        info!(from = %src_addr, ?rquestions, "query received");
         trace!(
+            from = %src_addr,
             len = buffer.len(),
-            payload = buffer.encode_hex_upper::<String>()
+            payload = buffer.encode_hex_upper::<String>(),
+            message = ?qmessage
         );
-        debug!(?qmessage);
+
+        // TODO Option to enable/disable check since transparent mode?
+        if let Err(err) = qmessage.check_valid_query() {
+            warn!(?err, ?qmessage, "invalid message, but continue processing");
+        }
 
         let client_socket = UdpSocket::bind(LOCAL_ADDR).await?;
         client_socket.connect(self.socket_addr).await?;
@@ -70,58 +72,24 @@ impl ProcessStrategy for TransparentProxyStrategy {
         let mut recv_buffer = allocate_udp_recv_buffer();
         client_socket.send(&buffer).await?;
         let recv_len = client_socket.recv(&mut recv_buffer).await?;
+        let recv_slice = &recv_buffer[..recv_len];
 
-        let rmessage = parse(&recv_buffer[..recv_len])?;
-        check_response_valid(&rmessage, &self.socket_addr)?;
-        trace!(to = %src_addr, len = recv_len, payload = (&recv_buffer[..recv_len]).encode_hex_upper::<String>(), "response");
-        debug!(message = ?rmessage, "response");
+        let rmessage = parse(recv_slice)?;
+        let rquestions = &rmessage.questions;
+        let answers = &rmessage.answers;
+        // TODO Option to enable/disable check since transparent mode?
+        if let Err(err) = rmessage.check_valid_response() {
+            warn!(?err, ?rmessage, "invalid message, but continue processing");
+        }
+        info!(to = %src_addr, ?rquestions, ?answers, "response sent");
+        trace!(
+            to = %src_addr,
+            len = recv_len,
+            payload = recv_slice.encode_hex_upper::<String>(),
+            message = ?rmessage
+        );
 
-        socket.send_to(&recv_buffer[..recv_len], src_addr).await?;
+        socket.send_to(recv_slice, src_addr).await?;
         Ok(())
     }
-}
-
-fn check_query_valid(qmessage: &Message, src_addr: &SocketAddr) -> anyhow::Result<()> {
-    let question = qmessage.questions.first().context("No questions header")?;
-    if qmessage.header.query_response == QueryResponse::Query {
-        info!(
-                from = %src_addr,
-                qclass = ?question.qclass,
-                qtype = ?question.qtype,
-                qname = question.name(),
-                "query received");
-    } else {
-        warn!(
-                from = %src_addr,
-                qclass = ?question.qclass,
-                qtype = ?question.qtype,
-                qname = question.name(),
-                "was waiting for a query, but has response flag");
-    }
-    if qmessage.questions.len() != 1 {
-        warn!(
-            count = qmessage.questions.len(),
-            "query do not have 1 query entry"
-        );
-    }
-    Ok(())
-}
-
-fn check_response_valid(rmessage: &Message, socket_addr: &SocketAddr) -> anyhow::Result<()> {
-    if rmessage.header.query_response == QueryResponse::Response {
-        info!(
-                from = %socket_addr,
-                "response received");
-    } else {
-        warn!(
-                from = %socket_addr,
-                "was waiting for a response, but has query flag");
-    }
-    if rmessage.questions.len() != 1 {
-        warn!(
-            count = rmessage.questions.len(),
-            "answer do not have 1 query entry"
-        );
-    }
-    Ok(())
 }
