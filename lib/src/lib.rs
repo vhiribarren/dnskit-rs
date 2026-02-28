@@ -34,8 +34,8 @@ pub enum NamingError {
     #[error("Name {name} has size {len} above max limit.", len = .name.len())]
     InvalidNameSize { name: String },
     #[error("Label {label} size {len} above max limit.", len = .label.len())]
-    InvalidLabelSize { label: String },  
-} 
+    InvalidLabelSize { label: String },
+}
 
 #[derive(Error, Debug)]
 pub enum TextError {
@@ -47,14 +47,10 @@ pub enum TextError {
 #[error("Error: {0}")]
 pub struct UnexpectedValueError(String);
 
-
 #[derive(Error, Debug)]
 pub enum ParseError {
     #[error("Name has size {actual} above max limit {expected_max}.")]
-    InvalidStringSize {
-        expected_max: usize,
-        actual: usize,
-    },
+    InvalidStringSize { expected_max: usize, actual: usize },
 
     #[error("The size of the slice is not compatible with the ongoing processing")]
     InvalidSliceSize,

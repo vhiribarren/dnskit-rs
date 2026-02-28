@@ -27,10 +27,10 @@ mod strategy;
 
 use clap::Parser;
 use dnskit::protocol::allocate_udp_recv_buffer;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::{UdpSocket, lookup_host};
-use tracing::{info, level_filters::LevelFilter};
+use tracing::{debug, level_filters::LevelFilter};
 use tracing_subscriber::EnvFilter;
 
 use crate::cache::memory::DnsCacheMemory;
@@ -38,65 +38,89 @@ use crate::strategy::ProcessStrategy;
 use crate::strategy::proxy::ProxyStrategy;
 use crate::strategy::proxy_cache::ProxyCacheStrategy;
 
-const SOCKET_ADDR_DEFAULT: &str = "127.0.0.1:3553";
-const TARGET_PROXY_ADDR_DEFAULT: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
-    
-#[derive(Parser)]
+const APP_NAME: &str = env!("CARGO_PKG_NAME");
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const DNS_PORT: u16 = 53;
+
+#[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// More execution information, up to -vvv
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
+
+    /// Local IP address to use.
+    #[arg(long, default_value = "127.0.0.1")]
+    local_ip: String,
+
+    /// Local port to use.
+    #[arg(long, default_value_t = 3553)]
+    local_port: u16,
+
+    /// Disable local cache, resolve all requests.
     #[arg(long)]
     no_cache: bool,
 
+    /// Forward requests to another resolver selected with --target-host.
     #[arg(long)]
     proxy: bool,
 
+    /// Requests are transmitted as is to another resolver,
+    /// without modifications. Local cache is disabled.
     /// (only valid with --proxy)
     #[arg(long, requires = "proxy")]
     passthrough: bool,
 
-    /// Target host (only valid with --proxy)
-    #[arg(long, requires = "proxy")]
-    target_host: Option<String>,
+    /// Target host when proxy mode is enabled.
+    /// (only valid with --proxy)
+    #[arg(long, default_value = "8.8.8.8", requires = "proxy")]
+    target_host: String,
 
-    /// Target port (only valid with --proxy)
-    #[arg(long, requires = "proxy")]
-    target_port: Option<u16>,
+    /// Target port when proxy mode is enabled.
+    /// (only valid with --proxy)
+    #[arg(long,  default_value_t = DNS_PORT, requires = "proxy")]
+    target_port: u16,
 }
-
-
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    println!("\nStarting DnsKit Resolver - use -v for more verbose output.\n");
+
+    println!("\n");
+    println!("Starting {APP_NAME} {APP_VERSION}.");
+    println!("Options --help for more parameters, -v for more outputs.");
+    println!("\n");
+
+    let local_sockaddr = SocketAddr::new(args.local_ip.parse()?, args.local_port);
+
+    println!("Listening on {local_sockaddr}");
+    println!("\n");
+
+    let local_socket = Arc::new(UdpSocket::bind(local_sockaddr).await?);
     setup_log(args.verbose);
+    debug!(?args, "parameters");
 
     let process_strategy: Arc<dyn ProcessStrategy> = {
         if args.proxy {
-            let target_sockaddr =  if let Some(target_host) = args.target_host {
-                lookup_host((target_host, args.target_port.unwrap_or(53))).await?.next().unwrap()
-            }
-            else {
-                TARGET_PROXY_ADDR_DEFAULT
-            };
+            let target_sockaddr = lookup_host((args.target_host, args.target_port))
+                .await?
+                .next()
+                .unwrap();
             if args.passthrough {
                 Arc::new(ProxyStrategy::new(target_sockaddr))
+            } else {
+                Arc::new(ProxyCacheStrategy::new(
+                    target_sockaddr,
+                    DnsCacheMemory::new(),
+                ))
             }
-            else {
-                Arc::new(ProxyCacheStrategy::new(target_sockaddr, DnsCacheMemory::new()))
-            }
-        }
-        else {
+        } else {
             unimplemented!()
         }
     };
 
-    launch_server(process_strategy).await
+    launch_server(local_socket, process_strategy).await
 }
-
 
 fn setup_log(verbose_count: u8) {
     let log_level = match verbose_count {
@@ -114,20 +138,23 @@ fn setup_log(verbose_count: u8) {
         .init();
 }
 
-
-async fn launch_server(process_strategy: Arc<dyn ProcessStrategy>) -> anyhow::Result<()>
-{
-    info!("Starting DNS server on {SOCKET_ADDR_DEFAULT}");
-    let socket = Arc::new(UdpSocket::bind(SOCKET_ADDR_DEFAULT).await?);
+async fn launch_server(
+    local_socket: Arc<UdpSocket>,
+    process_strategy: Arc<dyn ProcessStrategy>,
+) -> anyhow::Result<()> {
     loop {
         let mut recv_buffer = allocate_udp_recv_buffer();
-        let (recv_len, recv_addr) = socket.recv_from(&mut recv_buffer).await?;
+        let (recv_len, recv_addr) = local_socket.recv_from(&mut recv_buffer).await?;
 
-        let local_processor = Arc::clone(&process_strategy);
-        let local_socket = Arc::clone(&socket);
+        let local_task_processor = Arc::clone(&process_strategy);
+        let local_task_socket = Arc::clone(&local_socket);
         tokio::spawn(async move {
-            local_processor
-                .process_recv_data(recv_buffer[..recv_len].to_vec(), recv_addr, local_socket)
+            local_task_processor
+                .process_recv_data(
+                    recv_buffer[..recv_len].to_vec(),
+                    recv_addr,
+                    local_task_socket,
+                )
                 .await
         });
     }

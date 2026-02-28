@@ -244,7 +244,11 @@ impl TryFrom<u8> for QueryResponse {
         Ok(match value {
             0 => QueryResponse::Query,
             1 => QueryResponse::Response,
-            other => return Err(UnexpectedValueError(format!("This value should not happen: {other}"))),
+            other => {
+                return Err(UnexpectedValueError(format!(
+                    "This value should not happen: {other}"
+                )));
+            }
         })
     }
 }
@@ -274,7 +278,11 @@ impl TryFrom<u8> for OpCode {
             1 => OpCode::InverseQuery,
             2 => OpCode::Status,
             x @ 3..=15 => OpCode::Reserved(x),
-            other => return Err(UnexpectedValueError(format!("This value should not happen: {other}"))),
+            other => {
+                return Err(UnexpectedValueError(format!(
+                    "This value should not happen: {other}"
+                )));
+            }
         })
     }
 }
@@ -312,7 +320,11 @@ impl TryFrom<u8> for ResponseCode {
             4 => ResponseCode::NotImplemented,
             5 => ResponseCode::Refused,
             x @ 6..=15 => ResponseCode::Reserved(x),
-            other => return Err(UnexpectedValueError(format!("This value should not happen: {other}"))),
+            other => {
+                return Err(UnexpectedValueError(format!(
+                    "This value should not happen: {other}"
+                )));
+            }
         })
     }
 }
@@ -347,7 +359,9 @@ impl Question {
         for label in &qname {
             let label_len = label.len();
             if label_len > LABEL_LEN_MAX {
-                return Err(NamingError::InvalidLabelSize { label: label.into() });
+                return Err(NamingError::InvalidLabelSize {
+                    label: label.into(),
+                });
             }
         }
         Ok(Question {

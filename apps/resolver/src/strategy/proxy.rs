@@ -30,20 +30,12 @@ use dnskit::protocol::{
     parser::parse,
 };
 use hex::ToHex;
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::net::UdpSocket;
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::strategy::ProcessStrategy;
+use crate::strategy::{LOCAL_ADDR, ProcessStrategy};
 
-const LOCAL_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
-const TARGET_PROXY_ADDR_DEFAULT: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
-
-#[derive(Clone)]
 pub struct ProxyStrategy {
     socket_addr: SocketAddr,
 }
@@ -52,12 +44,6 @@ impl ProxyStrategy {
     pub fn new(socket_addr: SocketAddr) -> Self {
         info!("Proxy strategy configured with target address: {socket_addr}");
         ProxyStrategy { socket_addr }
-    }
-}
-
-impl Default for ProxyStrategy {
-    fn default() -> Self {
-        Self::new(TARGET_PROXY_ADDR_DEFAULT)
     }
 }
 

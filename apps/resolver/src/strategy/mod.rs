@@ -25,9 +25,14 @@ SOFTWARE.
 pub mod proxy;
 pub mod proxy_cache;
 
-use std::{net::SocketAddr, sync::Arc};
 use async_trait::async_trait;
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 use tokio::net::UdpSocket;
+
+const LOCAL_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
 
 #[async_trait]
 pub trait ProcessStrategy: Send + Sync {

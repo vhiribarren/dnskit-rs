@@ -23,7 +23,8 @@ SOFTWARE.
 */
 
 use crate::{
-    NamingError, ParseError, protocol::{LABEL_LEN_MAX, NAME_LEN_MAX}
+    NamingError, ParseError,
+    protocol::{LABEL_LEN_MAX, NAME_LEN_MAX},
 };
 
 pub struct CNAME {

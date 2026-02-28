@@ -31,33 +31,20 @@ use dnskit::protocol::{
 };
 use hex::ToHex;
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 use tokio::net::UdpSocket;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
-    cache::{DnsCache, memory::DnsCacheMemory},
-    strategy::ProcessStrategy,
+    cache::DnsCache,
+    strategy::{LOCAL_ADDR, ProcessStrategy},
 };
-
-const LOCAL_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
-const TARGET_PROXY_ADDR_DEFAULT: SocketAddr =
-    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
 
 pub struct ProxyCacheStrategy<C> {
     socket_addr: SocketAddr,
-    cache: Arc<Mutex<C>>,
-}
-
-impl<C> Clone for ProxyCacheStrategy<C> {
-    fn clone(&self) -> Self {
-        Self {
-            socket_addr: self.socket_addr,
-            cache: Arc::clone(&self.cache),
-        }
-    }
+    cache: Mutex<C>,
 }
 
 impl<C: DnsCache> ProxyCacheStrategy<C> {
@@ -65,7 +52,7 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
         info!("Proxy strategy configured with target address: {socket_addr}");
         Self {
             socket_addr,
-            cache: Arc::new(Mutex::new(cache)),
+            cache: Mutex::new(cache),
         }
     }
 
@@ -147,12 +134,6 @@ impl<C: DnsCache> ProxyCacheStrategy<C> {
             "response received from resolver"
         );
         Ok(proxied_rmessage)
-    }
-}
-
-impl Default for ProxyCacheStrategy<DnsCacheMemory> {
-    fn default() -> Self {
-        Self::new(TARGET_PROXY_ADDR_DEFAULT, DnsCacheMemory::new())
     }
 }
 
