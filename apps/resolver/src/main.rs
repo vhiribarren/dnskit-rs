@@ -25,7 +25,8 @@ SOFTWARE.
 mod cache;
 mod strategy;
 
-use clap::Parser;
+use anyhow::anyhow;
+use clap::{ArgAction, Args, Parser, Subcommand};
 use dnskit::protocol::allocate_udp_recv_buffer;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -43,47 +44,62 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DNS_PORT: u16 = 53;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None, next_line_help = true, disable_help_subcommand = true)]
+#[command(author, version, about, long_about = None, next_line_help = true)]
 struct CliArgs {
     /// More execution information, up to -vvv
-    #[arg(short, long, action = clap::ArgAction::Count)]
+    #[arg(short, long, action = ArgAction::Count)]
     verbose: u8,
-
     /// Local IP address to use.
     #[arg(long, default_value = "127.0.0.1")]
     local_ip: String,
-
     /// Local port to use.
     #[arg(long, default_value_t = 3553)]
     local_port: u16,
-
-    /// Disable local cache, resolve all requests.
-    #[arg(long)]
-    no_cache: bool,
-
-    /// Forward requests to another resolver selected with --target-host.
-    #[arg(long)]
-    proxy: bool,
-
-    #[command(flatten, next_help_heading = "Proxy Options")]
-    proxy_args: ProxyArgs,
+    /// Server mode.
+    #[command(subcommand)]
+    action: Action,
 }
 
-#[derive(clap::Args, Debug)]
-#[group(requires = "proxy")]
-struct ProxyArgs {
-    /// Requests are transmitted as is to another resolver,
-    /// without modifications. Local cache is disabled.
-    #[arg(long)]
-    transparent: bool,
+#[derive(Subcommand, Debug)]
+enum Action {
+    /// Forward all requests without processing to a target resolver.
+    Forward(ForwardArgs),
+    /// Proxy for a target resolver with local cache.
+    Proxy(ProxyArgs),
+    /// Act as a full DNS resolver.
+    Resolver(ResolverArgs),
+}
 
+#[derive(Args, Debug)]
+struct ProxyConfig {
     /// Target host when proxy mode is enabled.
     #[arg(long, default_value = "8.8.8.8")]
     target_host: String,
-
     /// Target port when proxy mode is enabled.
     #[arg(long,  default_value_t = DNS_PORT)]
     target_port: u16,
+}
+
+#[derive(Args, Debug)]
+struct ProxyArgs {
+    #[command(flatten)]
+    proxy_config: ProxyConfig,
+    /// Disable local cache, resolve all requests.
+    #[arg(long)]
+    no_cache: bool,
+}
+
+#[derive(clap::Args, Debug)]
+struct ForwardArgs {
+    #[command(flatten)]
+    proxy_config: ProxyConfig,
+}
+
+#[derive(clap::Args, Debug)]
+struct ResolverArgs {
+    /// Disable local cache, resolve all requests.
+    #[arg(long)]
+    no_cache: bool,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -105,26 +121,45 @@ async fn main() -> anyhow::Result<()> {
     debug!(?args, "parameters");
 
     let process_strategy: Arc<dyn ProcessStrategy> = {
-        if args.proxy {
-            let target_sockaddr =
-                lookup_host((args.proxy_args.target_host, args.proxy_args.target_port))
+        match args.action {
+            Action::Forward(args) => {
+                let target_host = args.proxy_config.target_host.clone();
+                let target_port = args.proxy_config.target_port;
+                let target_sockaddr = lookup_host((target_host, target_port))
                     .await?
                     .next()
-                    .unwrap();
-            if args.proxy_args.transparent {
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Could not resolve {} to an IP address",
+                            args.proxy_config.target_host
+                        )
+                    })?;
                 Arc::new(TransparentProxyStrategy::new(target_sockaddr))
-            } else {
+            }
+            Action::Proxy(args) => {
+                let target_host = args.proxy_config.target_host.clone();
+                let target_port = args.proxy_config.target_port;
+                let target_sockaddr = lookup_host((target_host, target_port))
+                    .await?
+                    .next()
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Could not resolve {} to an IP address",
+                            args.proxy_config.target_host
+                        )
+                    })?;
                 Arc::new(ProxyCacheStrategy::new(
                     target_sockaddr,
                     DnsCacheMemory::new(),
                 ))
             }
-        } else {
-            unimplemented!()
+            Action::Resolver(_args) => {
+                unimplemented!()
+            }
         }
     };
 
-    launch_server(local_socket, process_strategy).await
+    start_server_loop(local_socket, process_strategy).await
 }
 
 fn setup_log(verbose_count: u8) {
@@ -143,7 +178,7 @@ fn setup_log(verbose_count: u8) {
         .init();
 }
 
-async fn launch_server(
+async fn start_server_loop(
     local_socket: Arc<UdpSocket>,
     process_strategy: Arc<dyn ProcessStrategy>,
 ) -> anyhow::Result<()> {

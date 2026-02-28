@@ -1,9 +1,9 @@
 [package]
 
 name = "dnskit-resolver"
+description = "DNSKit Resolver"
 version.workspace = true
 authors.workspace = true
-description.workspace = true
 edition.workspace = true
 license.workspace = true
 
